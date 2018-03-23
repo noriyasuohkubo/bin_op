@@ -14,7 +14,7 @@ from keras.models import load_model
 app = Flask(__name__)
 
 symbol = "EURUSD"
-db_no = 3
+db_no = 7
 
 maxlen = 200
 
@@ -38,7 +38,7 @@ logger = logging.getLogger("app")
 model_file = os.path.join(MODEL_DIR, "bydrop_in1_" + s + "_m" + str(maxlen) + "_hid1_" + str(n_hidden)
                           + "_hid2_" + str(n_hidden2) + "_hid3_" + str(n_hidden3) + "_hid4_" + str(n_hidden4) +".hdf5")
 
-signal = ['UP','SAME','DOWN']
+signal = ['UP','SAME','DOWN','SHORT']
 
 # model and backend graph must be created on global
 global model, graph
@@ -57,13 +57,14 @@ def get_redis_data():
     r = redis.Redis(host='localhost', port=6379, db=db_no)
     result = r.zrevrange(symbol, 0  , maxlen
                       , withscores=False)
-
+    if len(result) < maxlen:
+        return None
     close_tmp= []
     result.reverse()
     for line in result:
         tmps = json.loads(line.decode('utf-8'))
         close_tmp.append(tmps.get("close"))
-    #print(close_tmp[100:])
+    #logger.info(close_tmp[len(result)-3:])
     close = 10000 * np.log(close_tmp/shift(close_tmp, 1, cval=np.NaN) )[1:]
 
     dataX = np.zeros((1,maxlen, 1))
@@ -75,13 +76,16 @@ def get_redis_data():
 @app.route('/', methods=['GET'])
 def root():
     dataX = get_redis_data()
+    #data sort
+    if dataX is None:
+        return signal[3]
 
     with graph.as_default():  # use the global graph
         res = model.predict(dataX, verbose=0)[0]
         #print(res)
         pred = res.argmax()
         prob = res[pred]
-        logger.info("predicted:" + signal[pred] + " prob:" + str(prob))
+        logger.info("predicted:" + signal[pred] + " probup:" + str(res[0])+ " probsame:" + str(res[1])+ " probdown:" + str(res[2]))
         ret = signal[pred]
         if prob < border:
             ret = signal[1] # SAME
