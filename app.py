@@ -44,8 +44,7 @@ signal = ['UP','SAME','DOWN','SHORT']
 global model, graph
 if os.path.isfile(model_file):
     model = load_model(model_file)
-    model.compile(loss='categorical_crossentropy',
-                  optimizer='rmsprop', metrics=['accuracy'])
+    model.compile(loss='categorical_crossentropy',optimizer='rmsprop', metrics=['accuracy'])
     #print("Load Model")
 else:
     logger.warning("no model exists")
