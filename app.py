@@ -16,8 +16,10 @@ app = Flask(__name__)
 symbol = "EURUSD"
 db_no = 7
 
-maxlen = 200
-
+maxlen = 50
+drop = 0.1
+in_num=1
+pred_term = 3
 s = "10"
 np.random.seed(0)
 n_hidden =  15
@@ -35,9 +37,14 @@ MODEL_DIR = config['lstm']['MODEL_DIR']
 logging.config.fileConfig( os.path.join(current_dir,"config","logging.conf"))
 logger = logging.getLogger("app")
 
+file_prefix = "bydrop_in" + str(in_num) + "_" + s + "_m" + str(maxlen) + "_term_" + str(pred_term * int(s)) + "_hid1_" + str(n_hidden) + \
+                          "_hid2_" + str(n_hidden2) + "_hid3_" + str(n_hidden3) + "_hid4_" + str(n_hidden4) + "_drop_" + str(drop)
+model_file = os.path.join(MODEL_DIR, file_prefix +".hdf5")
+
+"""
 model_file = os.path.join(MODEL_DIR, "bydrop_in1_" + s + "_m" + str(maxlen) + "_hid1_" + str(n_hidden)
                           + "_hid2_" + str(n_hidden2) + "_hid3_" + str(n_hidden3) + "_hid4_" + str(n_hidden4) +".hdf5")
-
+"""
 signal = ['UP','SAME','DOWN','SHORT']
 
 # model and backend graph must be created on global
