@@ -13,20 +13,21 @@ from keras.models import load_model
 
 app = Flask(__name__)
 
-symbol = "EURUSD"
+#symbol = "EURUSD"
+symbol = "GBPJPY"
 db_no = 7
 
-maxlen = 50
+maxlen = 200
 drop = 0.1
 in_num=1
 pred_term = 3
 s = "10"
 np.random.seed(0)
-n_hidden =  15
+n_hidden =  30
 n_hidden2 = 0
 n_hidden3 = 0
 n_hidden4 = 0
-border = 0.52
+border = 0.54
 
 current_dir = os.path.dirname(__file__)
 ini_file = os.path.join(current_dir,"config","config.ini")
@@ -37,8 +38,9 @@ MODEL_DIR = config['lstm']['MODEL_DIR']
 logging.config.fileConfig( os.path.join(current_dir,"config","logging.conf"))
 logger = logging.getLogger("app")
 
-file_prefix = "bydrop_in" + str(in_num) + "_" + s + "_m" + str(maxlen) + "_term_" + str(pred_term * int(s)) + "_hid1_" + str(n_hidden) + \
+file_prefix = symbol + "_bydrop_in" + str(in_num) + "_" + s + "_m" + str(maxlen) + "_term_" + str(pred_term * int(s)) + "_hid1_" + str(n_hidden) + \
                           "_hid2_" + str(n_hidden2) + "_hid3_" + str(n_hidden3) + "_hid4_" + str(n_hidden4) + "_drop_" + str(drop)
+
 model_file = os.path.join(MODEL_DIR, file_prefix +".hdf5")
 
 """
@@ -75,7 +77,7 @@ def get_redis_data():
 
     dataX = np.zeros((1,maxlen, 1))
     dataX[:, :, 0] = close[:]
-    print("X SHAPE:", dataX.shape)
+    #print("X SHAPE:", dataX.shape)
 
     return dataX
 
@@ -91,7 +93,7 @@ def root():
         #print(res)
         pred = res.argmax()
         prob = res[pred]
-        logger.info("predicted:" + signal[pred] + " probup:" + str(res[0])+ " probsame:" + str(res[1])+ " probdown:" + str(res[2]))
+        #logger.info("predicted:" + signal[pred] + " probup:" + str(res[0])+ " probsame:" + str(res[1])+ " probdown:" + str(res[2]))
         ret = signal[pred]
         if prob < border:
             ret = signal[1] # SAME
