@@ -29,10 +29,10 @@ pred_term = 3
 rec_num = 10000 + maxlen + pred_term + 1
 batch_size = 8192 * gpu_count
 
-start = datetime(2018, 4, 25)
+start = datetime(2018, 5, 4)
 start_stp = int(time.mktime(start.timetuple()))
 
-end = datetime(2018, 4, 26)
+end = datetime(2018, 5, 5)
 end_stp = int(time.mktime(end.timetuple()))
 
 s = "10"
@@ -43,12 +43,12 @@ except_highlow = True
 
 drop = 0.1
 np.random.seed(0)
-n_hidden =  30
+n_hidden =  35
 n_hidden2 = 0
 n_hidden3 = 0
 n_hidden4 = 0
 
-border = 0.55
+border = 0.57
 payout = 950
 default_money = 1005000
 
@@ -288,13 +288,18 @@ if __name__ == "__main__":
     money_trade_x, money_trade_y = np.array(["00:00:00" for i in range(len(time))]), np.ones(len(time), dtype=np.float64)
     money_not_notice_x, money_not_notice_y = np.array(["00:00:00" for i in range(len(time))]), np.ones(len(time),
                                                                                              dtype=np.float64)
+    money_notice_try_x, money_notice_try_y = np.array(["00:00:00" for i in range(len(time))]), np.ones(len(time),
+                                                                                             dtype=np.float64)
+
     money_tmp = {}
     money_trade_tmp = {}
     money_not_notice_tmp = {}
+    money_notice_try_tmp = {}
 
     money = default_money
     money_trade = default_money
     money_not_notice = default_money
+    money_notice_try = default_money
 
     print(datetime.now().strftime("%Y/%m/%d %H:%M:%S") + " Now Calculating")
 
@@ -309,6 +314,11 @@ if __name__ == "__main__":
     trade_win_cnt = 0
     not_notice_win_cnt = 0
     notice_cnt = 0
+    trade_wrong_win_cnt = 0
+    trade_wrong_lose_cnt = 0
+    notice_try_cnt = 0
+    notice_try_win_cnt = 0
+
     r = redis.Redis(host='localhost', port=6379, db=db_no)
 
     for x,y,p,t,pt,ps,ep in zip(x5,y5,p5,t5, pt5, ps5, ep5):
@@ -329,9 +339,24 @@ if __name__ == "__main__":
             if result == "win":
                 trade_win_cnt = trade_win_cnt +1
                 money_trade = money_trade + payout
+                money_notice_try = money_notice_try + payout
             else:
                 money_trade = money_trade - 1000
+                money_notice_try = money_notice_try - 1000
         else:
+            #NoticeMSG出た場合は1秒あとにトレードしている
+            tradeReultNotice = r.zrangebyscore(symbol + "_TRADE", ps +1, ps +1)
+            if len(tradeReultNotice) != 0:
+                notice_try_cnt = notice_try_cnt + 1
+                tmps = json.loads(tradeReultNotice[0].decode('utf-8'))
+                #startVal = tmps.get("startVal")
+                #endVal = tmps.get("endVal")
+                resultNotice = tmps.get("result")
+                if resultNotice == "win":
+                    notice_try_win_cnt = notice_try_win_cnt + 1
+                    money_notice_try = money_notice_try + payout
+                else:
+                    money_notice_try = money_notice_try - 1000
             notice_cnt += 1
 
         if max == 0:
@@ -359,7 +384,7 @@ if __name__ == "__main__":
                         true_cnt = true_cnt + 1
                     else:
                         correct = "FALSE"
-
+                        trade_wrong_lose_cnt += 1
                 result_txt.append(pt + "," + str(p) + "," + str(ep) + "," + "UP" + "," + probe + "," + "win" + "," + startVal + "," + endVal
                                   + "," + result+ "," + correct
                                   )
@@ -375,6 +400,7 @@ if __name__ == "__main__":
                 if result != "NULL":
                     if result == "win":
                         correct = "FALSE"
+                        trade_wrong_win_cnt += 1
                     else:
                         correct = "TRUE"
                         true_cnt = true_cnt + 1
@@ -405,6 +431,7 @@ if __name__ == "__main__":
                         true_cnt = true_cnt + 1
                     else:
                         correct = "FALSE"
+                        trade_wrong_lose_cnt += 1
 
                 result_txt.append(pt + "," + str(p) + "," + str(ep) + "," + "DOWN" + "," + probe + "," + "win" + "," + startVal + "," + endVal
                                   + "," + result+ "," + correct
@@ -422,6 +449,7 @@ if __name__ == "__main__":
                 if result != "NULL":
                     if result == "win":
                         correct = "FALSE"
+                        trade_wrong_win_cnt += 1
                     else:
                         correct = "TRUE"
                         true_cnt = true_cnt + 1
@@ -433,11 +461,13 @@ if __name__ == "__main__":
         money_tmp[pt] = money
         money_trade_tmp[pt] = money_trade
         money_not_notice_tmp[pt] = money_not_notice
+        money_notice_try_tmp[pt] = money_notice_try
         loop_cnt = loop_cnt + 1
 
     prev_money = default_money
     prev_trade_money = default_money
     prev_not_notice_money = default_money
+    prev_notice_try_money = default_money
     #T = time[0]
     #print("T:" + T[11:])
     for i, ti in enumerate(time):
@@ -461,6 +491,13 @@ if __name__ == "__main__":
         money_not_notice_x[i] = ti[11:13]
         money_not_notice_y[i] = prev_not_notice_money
 
+    for i, ti in enumerate(time):
+        if ti in money_notice_try_tmp.keys():
+            prev_notice_try_money = money_notice_try_tmp[ti]
+
+        money_notice_try_x[i] = ti[11:13]
+        money_notice_try_y[i] = prev_notice_try_money
+
     print(datetime.now().strftime("%Y/%m/%d %H:%M:%S") + " Now Plotting")
     fig = plt.figure()
     #価格の遷移
@@ -479,21 +516,26 @@ if __name__ == "__main__":
     ax2.plot(money_y)
     ax2.plot(money_trade_y,"r")
     ax2.plot(money_not_notice_y, "y")
+    ax2.plot(money_notice_try_y, "m")
 
-    #index = np.arange(0,len(money_x),3600// int(s))
-    #plt.xticks(index,money_x[index])
+    index = np.arange(0,len(money_x),3600// int(s))
+    plt.xticks(index,money_x[index])
 
     print('\n'.join(result_txt))
     print("trade correct: " + str(true_cnt/trade_cnt))
     print("trade cnt: " + str(trade_cnt))
     print("trade wrong cnt: " + str(trade_cnt - true_cnt))
+    print("trade wrong win cnt: " + str(trade_wrong_win_cnt))
+    print("trade wrong lose cnt: " + str(trade_wrong_lose_cnt))
 
     print("notice cnt: " + str(notice_cnt))
-    print("not_notice correct: " + str(not_notice_win_cnt / trade_cnt))
+    print("not_notice accuracy: " + str(not_notice_win_cnt / trade_cnt))
     print("not_notice money: " + str(prev_not_notice_money))
 
     print("trade accuracy: " + str(trade_win_cnt/trade_cnt))
     print("trade money: " + str(prev_trade_money))
+
+    print("predict money: " + str(money))
 
     plt.title('border:' + str(border) + " payout:" + str(payout) + " except index:" + str(except_index))
     plt.show()
