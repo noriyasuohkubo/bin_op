@@ -19,17 +19,17 @@ app = Flask(__name__)
 symbol = "GBPJPY"
 db_no = 7
 
-maxlen = 300
+maxlen = 100
 drop = 0.1
 in_num=1
-pred_term = 3
-s = "10"
+pred_term = 6
+s = "5"
 np.random.seed(0)
-n_hidden =  35
+n_hidden =  30
 n_hidden2 = 0
 n_hidden3 = 0
 n_hidden4 = 0
-border = 0.52
+border = 0.54
 
 current_dir = os.path.dirname(__file__)
 ini_file = os.path.join(current_dir,"config","config.ini")

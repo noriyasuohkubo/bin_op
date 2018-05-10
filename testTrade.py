@@ -22,20 +22,22 @@ from decimal import Decimal
 #symbol = "AUDUSD"
 symbol = "GBPJPY"
 
-db_no = 8
 gpu_count = 1
-maxlen = 300
-pred_term = 3
+maxlen = 100
+pred_term = 6
 rec_num = 10000 + maxlen + pred_term + 1
 batch_size = 8192 * gpu_count
 
-start = datetime(2018, 5, 4)
+start = datetime(2018, 5, 10)
 start_stp = int(time.mktime(start.timetuple()))
 
-end = datetime(2018, 5, 5)
+end = datetime(2018, 5, 11)
 end_stp = int(time.mktime(end.timetuple()))
 
-s = "10"
+host = "127.0.0.1"
+db_no = 8
+s = "5"
+db_suffix = ""
 suffix = ""
 
 except_index = False
@@ -43,12 +45,12 @@ except_highlow = True
 
 drop = 0.1
 np.random.seed(0)
-n_hidden =  35
+n_hidden =  30
 n_hidden2 = 0
 n_hidden3 = 0
 n_hidden4 = 0
 
-border = 0.57
+border = 0.55
 payout = 950
 default_money = 1005000
 
@@ -78,8 +80,8 @@ model_file = os.path.join(MODEL_DIR, file_prefix +".hdf5" + suffix)
 
 def get_redis_data():
     print("DB_NO:", db_no)
-    r = redis.Redis(host='localhost', port=6379, db=db_no)
-    result = r.zrangebyscore(symbol, start_stp, end_stp, withscores=True)
+    r = redis.Redis(host= host, port=6379, db=db_no)
+    result = r.zrangebyscore(symbol + db_suffix, start_stp, end_stp, withscores=True)
     #result = r.zrevrange(symbol, 0  , rec_num  , withscores=False)
     close_tmp, high_tmp, low_tmp = [], [], []
     time_tmp = []
@@ -318,14 +320,15 @@ if __name__ == "__main__":
     trade_wrong_lose_cnt = 0
     notice_try_cnt = 0
     notice_try_win_cnt = 0
+    not_trade_cnt = 0
 
-    r = redis.Redis(host='localhost', port=6379, db=db_no)
-
+    r = redis.Redis(host=host, port=6379, db=db_no)
+    print("connected")
     for x,y,p,t,pt,ps,ep in zip(x5,y5,p5,t5, pt5, ps5, ep5):
 
         max = x.argmax()
         probe = str(x[max])
-        tradeReult = r.zrangebyscore(symbol + "_TRADE", ps, ps)
+        tradeReult = r.zrangebyscore(symbol + "_TRADE" + db_suffix, ps, ps)
         startVal = "NULL"
         endVal = "NULL"
         result = "NULL"
@@ -344,8 +347,11 @@ if __name__ == "__main__":
                 money_trade = money_trade - 1000
                 money_notice_try = money_notice_try - 1000
         else:
-            #NoticeMSG出た場合は1秒あとにトレードしている
+            #NoticeMSG出た場合は1,2秒あとにトレードしている
             tradeReultNotice = r.zrangebyscore(symbol + "_TRADE", ps +1, ps +1)
+            if len(tradeReultNotice) == 0:
+                tradeReultNotice = r.zrangebyscore(symbol + "_TRADE", ps +2, ps +2)
+
             if len(tradeReultNotice) != 0:
                 notice_try_cnt = notice_try_cnt + 1
                 tmps = json.loads(tradeReultNotice[0].decode('utf-8'))
@@ -357,6 +363,8 @@ if __name__ == "__main__":
                     money_notice_try = money_notice_try + payout
                 else:
                     money_notice_try = money_notice_try - 1000
+            else:
+                not_trade_cnt += 1
             notice_cnt += 1
 
         if max == 0:
@@ -521,13 +529,18 @@ if __name__ == "__main__":
     index = np.arange(0,len(money_x),3600// int(s))
     plt.xticks(index,money_x[index])
 
-    print('\n'.join(result_txt))
+    for txt in result_txt:
+        res = txt.find("FALSE")
+        if res != -1:
+            print(txt)
+    #print('\n'.join(result_txt))
     print("trade correct: " + str(true_cnt/trade_cnt))
     print("trade cnt: " + str(trade_cnt))
     print("trade wrong cnt: " + str(trade_cnt - true_cnt))
     print("trade wrong win cnt: " + str(trade_wrong_win_cnt))
     print("trade wrong lose cnt: " + str(trade_wrong_lose_cnt))
 
+    print("not_trade cnt: " + str(not_trade_cnt))
     print("notice cnt: " + str(notice_cnt))
     print("not_notice accuracy: " + str(not_notice_win_cnt / trade_cnt))
     print("not_notice money: " + str(prev_not_notice_money))
