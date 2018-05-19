@@ -11,17 +11,19 @@ from scipy.ndimage.interpolation import shift
 import logging.config
 from keras.models import load_model
 
+#GPU使わない方がはやい
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 app = Flask(__name__)
 
 #symbol = "EURUSD"
 symbol = "GBPJPY"
 db_no = 7
 
-maxlen = 200
+maxlen = 100
 drop = 0.1
 in_num=1
-pred_term = 3
-s = "10"
+pred_term = 6
+s = "5"
 np.random.seed(0)
 n_hidden =  30
 n_hidden2 = 0
@@ -93,7 +95,7 @@ def root():
         #print(res)
         pred = res.argmax()
         prob = res[pred]
-        #logger.info("predicted:" + signal[pred] + " probup:" + str(res[0])+ " probsame:" + str(res[1])+ " probdown:" + str(res[2]))
+        logger.info("predicted:" + signal[pred] + " probup:" + str(res[0])+ " probsame:" + str(res[1])+ " probdown:" + str(res[2]))
         ret = signal[pred]
         if prob < border:
             ret = signal[1] # SAME
