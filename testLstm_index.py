@@ -16,68 +16,46 @@ from datetime import datetime
 from datetime import timedelta
 from keras.utils.training_utils import multi_gpu_model
 import time
-from indices import index
+from indices import index as idx
 from decimal import Decimal
 
 #symbol = "AUDUSD"
-symbol = "GBPJPY"
-#symbol = "EURUSD"
-#symbol = "NZDJPY"
-#symbol = "USDJPY"
-
+symbol = "JPNIDXJPY"
+pair = "GBPJPY"
 db_no = 3
 gpu_count = 2
-maxlen = 400
-pred_term = 6
-bin_type = ""
-
+maxlen = 200
+pred_term = 3
 batch_size = 8192 * gpu_count
 
-start = datetime(2018, 1, 1)
-start_stp = int(time.mktime(start.timetuple()))
+start_datetime = datetime(2018, 1, 1)
+start_step = int(time.mktime(start_datetime.timetuple()))
+end_datetime = datetime(2018, 3, 24)
+end_step = int(time.mktime(end_datetime.timetuple()))
 
-end = datetime(2018, 6, 1)
-end_stp = int(time.mktime(end.timetuple()))
-
-except_list = [20, 21, 22]
-#except_list = [8,9,10,11,12,13,14,15,16,20, 21, 22]
-
-s = "5"
-
-int_s = int(s)
-
-merg = 5
+s = "10"
 suffix = ""
-db_suffix = ""
 
 except_index = False
 except_highlow = True
 
 drop = 0.1
-
 np.random.seed(0)
-
-askbid = "_bid"
-
-spread = 1
-
-n_hidden =  40
+n_hidden =  15
 n_hidden2 = 0
 n_hidden3 = 0
 n_hidden4 = 0
 
-
-border = 0.57
+border = 0.52
 payout = 950
-if bin_type == "_spread":
-    payout = 1000
-    bin_type = bin_type + str(spread -1)
+
+spread = 1
 
 fx = False
 fx_position = 10000
-#fx_spread = 10
+fx_spread = 10
 
-in_num=1
+in_num=2
 
 current_dir = os.path.dirname(__file__)
 ini_file = os.path.join(current_dir,"config","config.ini")
@@ -87,8 +65,8 @@ MODEL_DIR = config['lstm']['MODEL_DIR']
 
 type = 'bydrop'
 
-file_prefix = symbol + "_bydrop_in" + str(in_num) + "_" + s + "_m" + str(maxlen) + "_term_" + str(pred_term * int(s)) + "_hid1_" + str(n_hidden) + \
-                          "_hid2_" + str(n_hidden2) + "_hid3_" + str(n_hidden3) + "_hid4_" + str(n_hidden4) + "_drop_" + str(drop) + askbid + bin_type+ "_merg_" + str(merg)
+file_prefix = pair + "_" + symbol + "_bydrop_in" + str(in_num) + "_" + s + "_m" + str(maxlen) + "_term_" + str(pred_term * int(s)) + "_hid1_" + str(n_hidden) + \
+                          "_hid2_" + str(n_hidden2) + "_hid3_" + str(n_hidden3) + "_hid4_" + str(n_hidden4) + "_drop_" + str(drop)
 
 logging.config.fileConfig( os.path.join(current_dir,"config","logging.conf"))
 logger = logging.getLogger("app")
@@ -97,123 +75,111 @@ model_file = os.path.join(MODEL_DIR, file_prefix +".hdf5" + suffix)
 
 def get_redis_data():
     print("DB_NO:", db_no)
-    r = redis.Redis(host='localhost', port=6379, db=db_no, decode_responses=True)
-    result = r.zrangebyscore(symbol + db_suffix, start_stp, end_stp, withscores=False)
-    #result = r.zrevrange(symbol, 0  , rec_num  , withscores=False)
-    close_tmp, high_tmp, low_tmp = [], [], []
-    time_tmp = []
-    print(result[0:5])
-    #result.reverse()
-    #print(index)
-    indicies = np.ones(len(index), dtype=np.int32)
-    #経済指標発表前後2時間は予想対象からはずす
-    for i,ind in enumerate(index):
-        tmp_datetime = datetime.strptime(ind, '%Y-%m-%d %H:%M:%S')
-        indicies[i] = int(time.mktime(tmp_datetime.timetuple()))
 
-    for line in result:
-        tmps = json.loads(line)
-        if askbid == "_ask":
-            close_tmp.append(tmps.get("ask"))
-        else:
+    close_data, index_data, label_data, time_data, price_data, end_price_data, close_abs_data = [], [], [], [], [], [], []
+
+    tmp_datetime = start_datetime
+    except_list = [20, 21, 22]
+    up = 0
+    same = 0
+    r = redis.Redis(host='localhost', port=6379, db=db_no)
+    while True:
+        if tmp_datetime >= end_datetime:
+            break
+        start_score = int(time.mktime(tmp_datetime.timetuple()))
+        next_datetime = tmp_datetime + timedelta(days=1)
+        end_score = int(time.mktime(next_datetime.timetuple()))
+        result = r.zrangebyscore(symbol, start_score, end_score, withscores=False)
+
+        close_tmp, index_tmp = [], []
+        time_tmp = []
+        #print(result[0:5])
+        #result.reverse()
+        #print(index)
+        indicies = np.ones(len(idx), dtype=np.int32)
+        #経済指標発表前後2時間は予想対象からはずす
+        for i,ind in enumerate(idx):
+            tmp_datetime = datetime.strptime(ind, '%Y-%m-%d %H:%M:%S')
+            indicies[i] = int(time.mktime(tmp_datetime.timetuple()))
+
+        for line in result:
+            tmps = json.loads(line.decode('utf-8'))
             close_tmp.append(tmps.get("close"))
 
-        time_tmp.append(tmps.get("time"))
-        high_tmp.append(tmps.get("high"))
-        low_tmp.append(tmps.get("low"))
+            time_tmp.append(tmps.get("time"))
+            index_tmp.append(float(tmps.get("ind_close")))
 
-    close = 10000 * np.log(close_tmp/shift(close_tmp, 1, cval=np.NaN) )[1:]
-    high = 10000 * np.log(high_tmp / shift(high_tmp, 1, cval=np.NaN) )[1:]
-    low = 10000 * np.log(low_tmp / shift(low_tmp, 1, cval=np.NaN)  )[1:]
+        close = 10000 * np.log(close_tmp/shift(close_tmp, 1, cval=np.NaN) )[1:]
+        index = 10 * np.log(index_tmp / shift(index_tmp, 1, cval=np.NaN) )[1:]
 
-    close_data, high_data, low_data, label_data, time_data, price_data, end_price_data, close_abs_data = [], [], [], [], [], [], [], []
+        data_length = len(close) - maxlen - pred_term -1
+        #print("data_length:" + str(data_length))
 
-    up =0
-    same =0
-    data_length = len(close) - maxlen - pred_term -1
-    print("data_length:" + str(data_length))
+        for i in range(data_length):
+            continue_flg = False
 
-    for i in range(data_length):
-        continue_flg = False
-        #ハイローオーストラリアの取引時間外を学習対象からはずす
+            if except_index:
+                tmp_datetime = datetime.strptime(time_tmp[1 + i + maxlen -1], '%Y-%m-%d %H:%M:%S')
+                score = int(time.mktime(tmp_datetime.timetuple()))
+                for ind in indicies:
+                    ind_datetime = datetime.fromtimestamp(ind)
 
-        if except_highlow:
-            if datetime.strptime(time_tmp[1 + i + maxlen -1], '%Y-%m-%d %H:%M:%S').hour in except_list:
-                continue;
-        if except_index:
-            tmp_datetime = datetime.strptime(time_tmp[1 + i + maxlen -1], '%Y-%m-%d %H:%M:%S')
-            score = int(time.mktime(tmp_datetime.timetuple()))
-            for ind in indicies:
-                ind_datetime = datetime.fromtimestamp(ind)
+                    bef_datetime = ind_datetime - timedelta(hours=1)
+                    aft_datetime = ind_datetime + timedelta(hours=4)
+                    bef_time = int(time.mktime(bef_datetime.timetuple()))
+                    aft_time = int(time.mktime(aft_datetime.timetuple()))
 
-                bef_datetime = ind_datetime - timedelta(minutes=10)
-                aft_datetime = ind_datetime + timedelta(minutes=30)
-                bef_time = int(time.mktime(bef_datetime.timetuple()))
-                aft_time = int(time.mktime(aft_datetime.timetuple()))
+                    if bef_time <= score and score <= aft_time:
+                        continue_flg = True
+                        break;
 
-                if bef_time <= score and score <= aft_time:
-                    continue_flg = True
-                    break;
+                if continue_flg:
+                    continue;
+            #ハイローオーストラリアの取引時間外を学習対象からはずす
+            if except_highlow:
+                if datetime.strptime(time_tmp[1 + i + maxlen -1], '%Y-%m-%d %H:%M:%S').hour in except_list:
+                    continue;
+            close_data.append(close[i:(i + maxlen)])
+            time_data.append(time_tmp[1 + i + maxlen -1])
+            price_data.append(close_tmp[1 + i + maxlen -1])
+            index_data.append(index[i:(i + maxlen)])
+            end_price_data.append(close_tmp[1 + i + maxlen + pred_term -1])
+            #close_abs_data.append(abs(close[i + maxlen -1]))
+            #tmp_abs= abs(close[i + maxlen -11:i + maxlen -1])
+            #close_abs_data.append(sum(tmp_abs)/len(tmp_abs))
 
-            if continue_flg:
-                continue;
-        #maxlen前の時刻までつながっていないものは除外。たとえば日付またぎなど
-        tmp_time_bef = datetime.strptime(time_tmp[1 + i], '%Y-%m-%d %H:%M:%S')
-        tmp_time_aft = datetime.strptime(time_tmp[1 + i + maxlen -1], '%Y-%m-%d %H:%M:%S')
-        delta =tmp_time_aft - tmp_time_bef
+            #high_data.append(high[i:(i + maxlen)])
+            #low_data.append(low[i:(i + maxlen)])
 
-        if delta.total_seconds() > ((maxlen-1) * int_s):
-            #print(tmp_time_aft)
-            continue;
+            bef = close_tmp[1 + i + maxlen -1]
+            aft = close_tmp[1 + i + maxlen + pred_term -1]
 
-        close_data.append(close[i:(i + maxlen)])
-        time_data.append(time_tmp[1 + i + maxlen -1])
-        price_data.append(close_tmp[1 + i + maxlen -1])
-        end_price_data.append(close_tmp[1 + i + maxlen + pred_term -1])
-        #close_abs_data.append(abs(close[i + maxlen -1]))
-        #tmp_abs= abs(close[i + maxlen -11:i + maxlen -1])
-        #close_abs_data.append(sum(tmp_abs)/len(tmp_abs))
+            #正解をいれる
+            if float(Decimal(str(aft)) - Decimal(str(bef))) >= 0.00001 * spread:
+                #上がった場合
+                label_data.append([1,0,0])
+                up = up + 1
+            elif  float(Decimal(str(bef)) - Decimal(str(aft))) >= 0.00001 * spread:
+                label_data.append([0,0,1])
+            else:
+                label_data.append([0,1,0])
+                same = same + 1
 
-        high_data.append(high[i:(i + maxlen)])
-        low_data.append(low[i:(i + maxlen)])
+        tmp_datetime = next_datetime
 
-        bef = close_tmp[1 + i + maxlen -1]
-        aft = close_tmp[1 + i + maxlen + pred_term -1]
-
-        #正解をいれる
-        if float(Decimal(str(aft)) - Decimal(str(bef))) >= 0.00001 * spread:
-            #上がった場合
-            label_data.append([1,0,0])
-            up = up + 1
-        elif  float(Decimal(str(bef)) - Decimal(str(aft))) >= 0.00001 * spread:
-            label_data.append([0,0,1])
-        else:
-            label_data.append([0,1,0])
-            same = same + 1
-        """
-        if bef < aft:
-            #上がった場合
-            label_data.append([1,0,0])
-            up = up + 1
-        elif bef > aft:
-            label_data.append([0,0,1])
-        else:
-            label_data.append([0,1,0])
-            same = same + 1
-        """
     close_np = np.array(close_data)
     time_np = np.array(time_data)
     price_np = np.array(price_data)
-    close_tmp_np = np.array(close_tmp)
-    time_tmp_np = np.array(time_tmp)
+    #close_tmp_np = np.array(close_tmp)
+    #time_tmp_np = np.array(time_tmp)
     end_price_np = np.array(end_price_data)
     close_abs_np = np.array(close_abs_data)
-    high_np = np.array(high_data)
-    low_np = np.array(low_data)
+    index_np = np.array(index_data)
+    #low_np = np.array(low_data)
 
     retX = np.zeros((len(close_np), maxlen, in_num))
     retX[:, :, 0] = close_np[:]
-    #retX[:, :, 1] = high_np[:]
+    retX[:, :, 1] = index_np[:]
     #retX[:, :, 2] = low_np[:]
 
     retY = np.array(label_data)
@@ -223,6 +189,23 @@ def get_redis_data():
     print("UP: ",up/len(retY))
     print("SAME: ", same / len(retY))
     print("DOWN: ", (len(retY) - up - same) / len(retY))
+
+
+    r = redis.Redis(host='localhost', port=6379, db=db_no)
+    result = r.zrangebyscore(pair, start_step, end_step, withscores=False)
+    #result = r.zrevrange(symbol, 0  , rec_num  , withscores=False)
+    close_tmp= []
+    time_tmp = []
+
+    for line in result:
+        tmps = json.loads(line.decode('utf-8'))
+        close_tmp.append(tmps.get("close"))
+        time_tmp.append(tmps.get("time"))
+        #high_tmp.append(tmps.get("high"))
+        #low_tmp.append(tmps.get("low"))
+    close_tmp_np = np.array(close_tmp)
+    time_tmp_np = np.array(time_tmp)
+
 
     return retX, retY, price_np, time_np, close_tmp_np, time_tmp_np,end_price_np,close_abs_np
 
@@ -252,31 +235,6 @@ def do_predict(test_X, test_Y):
     K.clear_session()
     return res
 
-class TimeRate():
-    def __init__(self):
-        self.all_cnt = 0
-        self.correct_cnt = 0
-
-def getAcc(res, border, dataY):
-    up = res[:, 0]
-    down = res[:, 2]
-    up_ind5 = np.where(up >= border)[0]
-    down_ind5 = np.where(down >= border)[0]
-    x5_up = res[up_ind5,:]
-    y5_up= dataY[up_ind5,:]
-    x5_down = res[down_ind5,:]
-    y5_down= dataY[down_ind5,:]
-
-    up_eq = np.equal(x5_up.argmax(axis=1), y5_up.argmax(axis=1))
-    up_cor_length = int(len(np.where(up_eq == True)[0]))
-    down_eq = np.equal(x5_down.argmax(axis=1), y5_down.argmax(axis=1))
-    down_cor_length = int(len(np.where(down_eq == True)[0]))
-
-    Acc = (up_cor_length + down_cor_length) / (len(up_ind5) + len(down_ind5))
-    total = len(up_ind5) + len(down_ind5)
-    correct = int(total * Acc)
-
-    return Acc, total, correct
 
 if __name__ == "__main__":
     dataX, dataY, price_data, time_data, close, time, end_price_data, close_abs_data = get_redis_data()
@@ -292,12 +250,57 @@ if __name__ == "__main__":
 
     print(t5[0:10])
 
-    border_list=[0.53,0.54,0.55,0.56,0.57,0.58,0.59,0.60,0.61,]
-    for i in border_list:
-        Acc5 = getAcc(res,i,dataY)
-        print("Accuracy over " + str(i) + ":", Acc5[0])
-        print("Total:", Acc5[1])
-        print("Correct:", Acc5[2])
+    Acc = np.mean(np.equal(res.argmax(axis=1),dataY.argmax(axis=1)))
+    print("Accuracy over ALL:", Acc)
+    print("Total:", len(dataY))
+    print("Correct:", len(dataY) * Acc)
+
+
+    Acc5 = np.mean(np.equal(x5.argmax(axis=1),y5.argmax(axis=1)))
+    total_length = len(x5)
+    print("Accuracy over " + str(border) + ":", Acc5)
+    print("Total:", len(x5))
+    print("Correct:", len(x5) * Acc5)
+
+    ind53 = np.where(res >=0.53)[0]
+    x53 = res[ind53,:]
+    y53= dataY[ind53,:]
+    Acc53 = np.mean(np.equal(x53.argmax(axis=1),y53.argmax(axis=1)))
+    print("Accuracy over 0.53:", Acc53)
+    print("Total:", len(x53))
+    print("Correct:", len(x53) * Acc53)
+
+    ind54 = np.where(res >=0.54)[0]
+    x54 = res[ind54,:]
+    y54= dataY[ind54,:]
+    Acc54 = np.mean(np.equal(x54.argmax(axis=1),y54.argmax(axis=1)))
+    print("Accuracy over 0.54:", Acc54)
+    print("Total:", len(x54))
+    print("Correct:", len(x54) * Acc54)
+
+    ind55 = np.where(res >=0.55)[0]
+    x55 = res[ind55,:]
+    y55= dataY[ind55,:]
+    Acc55 = np.mean(np.equal(x55.argmax(axis=1),y55.argmax(axis=1)))
+    print("Accuracy over 0.55:", Acc55)
+    print("Total:", len(x55))
+    print("Correct:", len(x55) * Acc55)
+
+    ind56 = np.where(res >=0.56)[0]
+    x56 = res[ind56,:]
+    y56= dataY[ind56,:]
+    Acc56 = np.mean(np.equal(x56.argmax(axis=1),y56.argmax(axis=1)))
+    print("Accuracy over 0.56:", Acc56)
+    print("Total:", len(x56))
+    print("Correct:", len(x56) * Acc56)
+
+    ind57 = np.where(res >=0.57)[0]
+    x57 = res[ind57,:]
+    y57= dataY[ind57,:]
+    Acc57 = np.mean(np.equal(x57.argmax(axis=1),y57.argmax(axis=1)))
+    print("Accuracy over 0.57:", Acc57)
+    print("Total:", len(x57))
+    print("Correct:", len(x57) * Acc57)
 
     """
     tmp_pred = res.argmax(axis=1)
@@ -318,7 +321,6 @@ if __name__ == "__main__":
     """
     up = res[:, 0]
     down = res[:, 2]
-
     up_ind5 = np.where(up >= border)[0]
     down_ind5 = np.where(down >= border)[0]
 
@@ -331,8 +333,8 @@ if __name__ == "__main__":
     #Acc5_up = np.mean(np.equal(x5_up.argmax(axis=1), y5_up.argmax(axis=1)))
     up_cor_length = int(len(np.where(up_eq == True)[0]))
     up_wrong_length = int(up_total_length - up_cor_length)
-    #print("up_cor_length:"+ str(up_cor_length))
-    #print("up_wrong_length:" + str(up_wrong_length))
+    print("up_cor_length:"+ str(up_cor_length))
+    print("up_wrong_length:" + str(up_wrong_length))
 
     x5_down = res[down_ind5,:]
     y5_down= dataY[down_ind5,:]
@@ -343,8 +345,8 @@ if __name__ == "__main__":
     down_eq = np.equal(x5_down.argmax(axis=1), y5_down.argmax(axis=1))
     down_cor_length = int(len(np.where(down_eq == True)[0]))
     down_wrong_length = int(down_total_length - down_cor_length)
-    #print("down_cor_length:"+ str(down_cor_length))
-    #print("down_wrong_length:" + str(down_wrong_length))
+    print("down_cor_length:"+ str(down_cor_length))
+    print("down_wrong_length:" + str(down_wrong_length))
 
     cor_list_up_x, cor_list_up_y = np.array([ "yyyy-mm-dd 00:00:00" for i in range(up_cor_length) ]), np.ones(up_cor_length, dtype=np.float64)
     wrong_list_up_x, wrong_list_up_y = np.array([ "yyyy-mm-dd 00:00:00" for i in range(up_wrong_length) ]), np.ones(up_wrong_length, dtype=np.float64)
@@ -367,25 +369,16 @@ if __name__ == "__main__":
     cnt_cor_abs = 0
     cnt_wrong_abs = 0
 
-    time_rate_list = {}
-    for i in range(0, 24):
-        time_rate_list[i] = (TimeRate())
-
     for x,y,p,t,ep in zip(x5,y5,p5,t5,ep5):
 
         max = x.argmax()
-        """
-        time_rate_list[int(t[11:13])].all_cnt += 1
-        if max == y.argmax():
-            time_rate_list[int(t[11:13])].correct_cnt += 1
-        """
         if max == 0:
             # Up predict
             if fx:
                 buy = p * fx_position
                 sell = ep * fx_position
                 # DB上の値は実際の1／100なので100倍している
-                profit = float(Decimal(str(sell)) - Decimal(str(buy)) - Decimal(str((0.00001 * spread * fx_position)))) * 100
+                profit = float(Decimal(str(sell)) - Decimal(str(buy)) - Decimal(str((0.00001 * fx_spread * fx_position)))) * 100
                 money = money + profit
             if max == y.argmax():
                 if fx == False:
@@ -409,7 +402,7 @@ if __name__ == "__main__":
             if fx:
                 sell = p * fx_position
                 buy =  ep * fx_position
-                profit = float(Decimal(str(sell)) - Decimal(str(buy)) - Decimal(str((0.00001 * spread * fx_position)))) * 100
+                profit = float(Decimal(str(sell)) - Decimal(str(buy)) - Decimal(str((0.00001 * fx_spread * fx_position)))) * 100
                 money = money + profit
             if max == y.argmax():
                 if fx == False:
@@ -455,11 +448,9 @@ if __name__ == "__main__":
     plt.plot(wrong_list_abs, "bo")
     plt.show()
     """
-    """
-    for k, v in time_rate_list.items():
-        if v.all_cnt != 0:
-            print("time:",k," all_cnt:",v.all_cnt," correct_cnt:",v.correct_cnt," correct_rate:",v.correct_cnt/v.all_cnt)
-    """
+
+
+
     fig = plt.figure()
     #価格の遷移
     ax1 = fig.add_subplot(111)

@@ -19,33 +19,34 @@ import time
 from indices import index
 from decimal import Decimal
 
-#symbol = "AUDUSD"
-#symbol = "GBPJPY"
-symbol = "EURUSD"
+# symbol = "AUDUSD"
+symbol = "GBPJPY"
+#symbol = "EURUSD"
 
-import_db_nos = {"ubuntu1":11,"ubuntu2":12,}
+import_db_nos = {"ubuntu": 8, "ubuntu1": 11, "ubuntu2": 12, }
 
 export_db_no = 8
 
-export_host = "ubuntu2"
+export_host = "ubuntu1"
 import_host = "127.0.0.1"
 
-start = datetime(2018, 5, 16)
+start = datetime(2018, 5, 1)
 start_stp = int(time.mktime(start.timetuple()))
 
-end = datetime(2018, 5, 19)
+end = datetime(2018, 5, 27)
 end_stp = int(time.mktime(end.timetuple()))
+
 
 def import_data():
     import_db_no = import_db_nos.get(export_host)
-    export_r = redis.Redis(host= export_host, port=6379, db=export_db_no)
-    import_r = redis.Redis(host= import_host, port=6379, db=import_db_no)
+    export_r = redis.Redis(host=export_host, port=6379, db=export_db_no)
+    import_r = redis.Redis(host=import_host, port=6379, db=import_db_no)
     result_data = export_r.zrangebyscore(symbol, start_stp, end_stp, withscores=True)
 
     for line in result_data:
         body = line[0]
         score = line[1]
-        imp = import_r.zrangebyscore(symbol , score, score)
+        imp = import_r.zrangebyscore(symbol, score, score)
         if len(imp) == 0:
             import_r.zadd(symbol, body, score)
 
@@ -54,7 +55,7 @@ def import_data():
     for line in result_trade_data:
         body = line[0]
         score = line[1]
-        imp = import_r.zrangebyscore(symbol + "_TRADE" , score, score)
+        imp = import_r.zrangebyscore(symbol + "_TRADE", score, score)
         if len(imp) == 0:
             import_r.zadd(symbol + "_TRADE", body, score)
 

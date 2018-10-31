@@ -1,0 +1,108 @@
+max_len:20,hidden:20
+acc: 0.4575
+Accuracy over ALL: 0.45616
+Total: 200000
+Correct: 91232.0
+Accuracy over 0.6: 0.645161290323
+Total: 341
+Correct: 220.0
+Accuracy over 0.7: 0.766355140187
+Total: 107
+Correct: 82.0
+Accuracy over 0.8: 0.5
+Total: 10
+Correct: 5.0
+Accuracy over 0.9: 0.5
+Total: 2
+Correct: 1.0
+
+max_len:20,hidden:50
+Accuracy over ALL: 0.454015
+Total: 200000
+Correct: 90803.0
+Accuracy over 0.6: 0.559926244622
+Total: 1627
+Correct: 911.0
+Accuracy over 0.7: 0.612745098039
+Total: 408
+Correct: 250.0
+Accuracy over 0.8: 0.662337662338
+Total: 154
+Correct: 102.0
+Accuracy over 0.9: 0.783783783784
+Total: 74
+Correct: 58.0
+
+max_len:50,hidden:50
+Accuracy over ALL: 0.455725
+Total: 200000
+Correct: 91145.0
+Accuracy over 0.6: 0.595102040816
+Total: 1225
+Correct: 729.0
+Accuracy over 0.7: 0.693227091633
+Total: 251
+Correct: 174.0
+Accuracy over 0.8: 0.710526315789
+Total: 114
+Correct: 81.0
+Accuracy over 0.9: 0.797101449275
+Total: 69
+Correct: 55.0
+END
+
+max_len:50,hidden:100
+acc: 0.4677
+Accuracy over ALL: 0.45766
+Total: 200000
+Correct: 91532.0
+Accuracy over 0.6: 0.51817087846
+Total: 4155
+Correct: 2153.0
+Accuracy over 0.7: 0.530128639133
+Total: 1477
+Correct: 783.0
+Accuracy over 0.8: 0.542936288089
+Total: 722
+Correct: 392.0
+Accuracy over 0.9: 0.558404558405
+Total: 351
+Correct: 196.0
+END
+
+max_len:100,hidden:50
+acc: 0.4618
+Accuracy over ALL: 0.455195
+Total: 200000
+Correct: 91039.0
+Accuracy over 0.6: 0.603333333333
+Total: 1200
+Correct: 724.0
+Accuracy over 0.7: 0.700892857143
+Total: 224
+Correct: 157.0
+Accuracy over 0.8: 0.734939759036
+Total: 83
+Correct: 61.0
+Accuracy over 0.9: 0.761904761905
+Total: 42
+Correct: 32.0
+END
+
+max_len:100,hidden:100
+acc: 0.4679
+Accuracy over ALL: 0.45728
+Total: 200000
+Correct: 91456.0
+Accuracy over 0.6: 0.520862116607
+Total: 3619
+Correct: 1885.0
+Accuracy over 0.7: 0.516080777861
+Total: 1337
+Correct: 690.0
+Accuracy over 0.8: 0.507352941176
+Total: 680
+Correct: 345.0
+Accuracy over 0.9: 0.531609195402
+Total: 348
+Correct: 185.0

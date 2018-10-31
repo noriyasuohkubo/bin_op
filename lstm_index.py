@@ -40,52 +40,38 @@ logger = getLogger(__name__)
 #os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 gpu_count = 2
 type = "category"
-
 #symbol = "AUDUSD"
-symbol = "GBPJPY"
-#symbol = "EURUSD"
-#symbol = "NZDJPY"
-#symbol = "USDJPY"
 
+s = "10"
+pair = "GBPJPY"
+symbol = "JPNIDXJPY"
 db_no = 3
 train = True
-start_day = 120 * 24 * 300 * 0
 
-maxlen = 100
-pred_term = 6
-rec_num = 32000000 + maxlen + pred_term + 1
-bin_type = ""
-
-start = datetime(2018, 1, 1)
-start_score = int(time.mktime(start.timetuple()))
-
-end = datetime(2000, 1, 1)
-end_score = int(time.mktime(end.timetuple()))
+maxlen = 200
+pred_term = 3
+start_datetime = datetime(2012, 2, 6)
+end_datetime = datetime(2018, 1, 1)
 
 #rec_num = 3600 * 24 * 3
-epochs = 10
+epochs = 25
 batch_size = 8192 * gpu_count
 except_highlow = True
 
-except_list = [20, 21, 22]
-askbid = "_bid"
-s = "5"
+
 drop = 0.1
 
-in_num= 1
+in_num=2
+
 np.random.seed(0)
 
-spread = 1
-if bin_type == "_spread":
-    bin_type = bin_type + str(spread -1)
-
-n_hidden = 30
+n_hidden = 15
 n_hidden2 = 0
 n_hidden3 = 0
 n_hidden4 = 0
 
-file_prefix = symbol + "_bydrop_in" + str(in_num) + "_" + s + "_m" + str(maxlen) + "_term_" + str(pred_term * int(s)) + "_hid1_" + str(n_hidden) + \
-                          "_hid2_" + str(n_hidden2) + "_hid3_" + str(n_hidden3) + "_hid4_" + str(n_hidden4) + "_drop_" + str(drop)  + askbid + bin_type
+file_prefix = pair + "_" + symbol + "_bydrop_in" + str(in_num) + "_" + s + "_m" + str(maxlen) + "_term_" + str(pred_term * int(s)) + "_hid1_" + str(n_hidden) + \
+                          "_hid2_" + str(n_hidden2) + "_hid3_" + str(n_hidden3) + "_hid4_" + str(n_hidden4) + "_drop_" + str(drop)
 current_dir = os.path.dirname(__file__)
 ini_file = os.path.join(current_dir,"config","config.ini")
 history_file = os.path.join(current_dir,"history", file_prefix +"_history.csv")
@@ -99,167 +85,129 @@ MODEL_DIR = config['lstm']['MODEL_DIR']
 model_file = os.path.join(MODEL_DIR, file_prefix +".hdf5")
 
 
-def get_redis_data(symbol, rec_num, maxlen, pred_term, type, db_no):
+def get_redis_data(symbol, maxlen, pred_term, type, db_no):
     print("DB_NO:", db_no)
-    r = redis.Redis(host='localhost', port=6379, db=db_no, decode_responses=True)
-    start = time.time()
-    #result = r.zrevrange(symbol, 0 + start_day , rec_num + start_day , withscores=False)
-    result = r.zrevrangebyscore(symbol, start_score, end_score, start=0, num=rec_num + 1)
-    #print(result)
-    close_tmp, high_tmp, low_tmp, time_tmp = [], [], [], []
-    ask_tmp, bid_tmp = [], []
-    avol_tmp, bvol_tmp =[], []
-    result.reverse()
-    for line in result:
-        tmps = json.loads(line)
+    r = redis.Redis(host='localhost', port=6379, db=db_no)
 
-        if askbid == "_ask":
-            close_tmp.append(tmps.get("ask"))
-        else:
+    close_data, index_data, label_data, time_data = [], [], [], []
+    close_tmp_data , index_tmp_data = [],[]
+
+    tmp_datetime = start_datetime
+    except_list = [20, 21, 22]
+    up = 0
+    same = 0
+    while True:
+        if tmp_datetime >= end_datetime:
+            break
+        start_score = int(time.mktime(tmp_datetime.timetuple()))
+        next_datetime = tmp_datetime + timedelta(days=1)
+        end_score = int(time.mktime(next_datetime.timetuple()))
+
+        result = r.zrangebyscore(symbol, start_score, end_score)
+        #print(result)
+        close_tmp, index_tmp, time_tmp = [], [], []
+
+        for line in result:
+            tmps = json.loads(line.decode('utf-8'))
             close_tmp.append(tmps.get("close"))
+            index_tmp.append(float(tmps.get("ind_close")))
+            time_tmp.append(tmps.get("time"))
+        #print("index_tmp:", index_tmp[0:10])
+        #print("close_tmp:", close_tmp[0:10])
+        close = 10000 * np.log(close_tmp/shift(close_tmp, 1, cval=np.NaN) )[1:]
+        index = 10 * np.log(index_tmp / shift(index_tmp, 1, cval=np.NaN) )[1:]
+        #print("OK")
+        #data = pd.DataFrame(tmp)
+        #print(close_tmp[0:10])
+        #print(time_tmp[-5:])
+        #print(time_tmp[0:5])
+        #print((np.log(close_tmp/shift(close_tmp, 1, cval=np.NaN)))[0:10])
+        #print(close[0:10])
+        #print(index[0:10])
 
-        time_tmp.append(tmps.get("time"))
-        #high_tmp.append(tmps.get("high"))
-        #low_tmp.append(tmps.get("low"))
+        data_length = len(close) - maxlen - pred_term -1
 
-        #ask_tmp.append(tmps.get("ask_volume"))
-        #bid_tmp.append(tmps.get("bid_volume"))
-        #print(tmps)
-    #close = preprocessing.scale(np.array(close_tmp))
-    #high = preprocessing.scale(np.array(high_tmp))
-    #low = preprocessing.scale(np.array(low_tmp))
-    #ask = preprocessing.scale(np.array(ask_tmp))
-    #bid = preprocessing.scale(np.array(bid_tmp))
+        for i in range(data_length):
+            #ハイローオーストラリアの取引時間外を学習対象からはずす
+            if except_highlow:
 
-    close = 10000 * np.log(close_tmp/shift(close_tmp, 1, cval=np.NaN) )[1:]
-    #high = 10000 * np.log(high_tmp / shift(high_tmp, 1, cval=np.NaN) )[1:]
-    #low = 10000 * np.log(low_tmp / shift(low_tmp, 1, cval=np.NaN)  )[1:]
+                if datetime.strptime(time_tmp[1 + i + maxlen -1], '%Y-%m-%d %H:%M:%S').hour in except_list:
+                    continue;
+            close_data.append(close[i:(i + maxlen)])
+            index_data.append(index[i:(i + maxlen)])
+            time_data.append(time_tmp[1 + i + maxlen -1])
 
-    #data = pd.DataFrame(tmp)
-    print(close_tmp[0:10])
-    print(time_tmp[-5:])
-    print(time_tmp[0:5])
-    #print((np.log(close_tmp/shift(close_tmp, 1, cval=np.NaN)))[0:10])
-    ##print(close[0:10])
-    #print(high[0:10])
-    #print(low[0:10])
-    #print( pd.read_json(dum, orient='records'))
+            close_tmp_data.append(close[i + maxlen])
+            index_tmp_data.append(index[i + maxlen])
 
-    #tmp = preprocessing.scale(data.ix[:, "close"])
-    #elapsed_time = time.time() - start
-    #print ("elapsed_time:{0}".format(elapsed_time) + "[sec]")
+            bef = close_tmp[1 + i + maxlen -1]
+            aft = close_tmp[1 + i + maxlen + pred_term -1]
 
-    close_data, high_data, low_data, label_data, close_tmp_data = [], [], [], [], []
-    ask_data, bid_data = [], []
-    avol_data, bvol_data = [], []
-    avol_dif_data, bvol_dif_data , close_dif_data = [], [], []
+            if type=="mean":
+                label_data.append([close[i + maxlen +  pred_term]])
+            elif type=="category":
+                if float(Decimal(str(aft)) - Decimal(str(bef))) >= 0.00001:
+                    # 上がった場合
+                    label_data.append([1, 0, 0])
+                    up = up + 1
+                elif float(Decimal(str(bef)) - Decimal(str(aft))) >= 0.00001:
+                    label_data.append([0, 0, 1])
+                else:
+                    label_data.append([0, 1, 0])
+                    same = same + 1
 
-    up =0
-    same =0
-    data_length = len(close) - maxlen - pred_term -1
-    #data_length = len(high) - maxlen - pred_term - 1
+        tmp_datetime = next_datetime
 
-
-    for i in range(data_length):
-        #close_data.append(preprocessing.scale(close[i:(i+maxlen)]))
-        #high_data.append(preprocessing.scale(high[i:(i + maxlen)]))
-        #low_data.append(preprocessing.scale(low[i:(i + maxlen)]))
-        continue_flg = False
-
-        #ハイローオーストラリアの取引時間外を学習対象からはずす
-        if except_highlow:
-
-            if datetime.strptime(time_tmp[1 + i + maxlen -1], '%Y-%m-%d %H:%M:%S').hour in except_list:
-                continue;
-        close_data.append(close[i:(i + maxlen)])
-        #close_tmp_data.append(close[i + maxlen -1])
-        #high_data.append(high[i:(i + maxlen)])
-        #low_data.append(low[i:(i + maxlen)])
-
-        #ask_data.append(ask[i:(i + maxlen)])
-        #bid_data.append(bid[i:(i + maxlen)])
-        bef = close_tmp[1 + i + maxlen -1]
-        aft = close_tmp[1 + i + maxlen + pred_term -1]
-
-        #close_dif_data.append(aft - bef)
-
-        #bef = data.ix[i + maxlen, "close"]
-        #aft = data.ix[i+maxlen+pred_term, "close"]
-        #print("val:", bef, aft)
-
-        if type=="mean":
-            label_data.append([close[i + maxlen +  pred_term]])
-            #label_data.append([high[i + maxlen + pred_term]])
-        elif type=="category":
-            if float(Decimal(str(aft)) - Decimal(str(bef))) >= 0.00001 * spread:
-                # 上がった場合
-                label_data.append([1, 0, 0])
-                up = up + 1
-            elif float(Decimal(str(bef)) - Decimal(str(aft))) >= 0.00001 * spread:
-                label_data.append([0, 0, 1])
-            else:
-                label_data.append([0, 1, 0])
-                same = same + 1
     close_np = np.array(close_data)
-    #high_np = np.array(high_data)
-    #low_np = np.array(low_data)
-    #close_dif_data_np = np.array(close_dif_data)
-
-    #close_tmp_data_np = np.array(close_tmp_data)
-    #ask_np = np.array(ask_data)
-    #bid_np = np.array(bid_data)
+    index_np = np.array(index_data)
+    close_tmp_np = np.array(close_tmp_data)
+    index_tmp_np = np.array(index_tmp_data)
 
     retX = np.zeros((len(close_np), maxlen, in_num))
     retX[:, :, 0] = close_np[:]
-    #retX[:, :, 3] = ask_np[:]
-    #retX[:, :, 4] = bid_np[:]
-    #retX = np.reshape(retX, (retX.shape[0], retX.shape[1],1))
+    retX[:, :, 1] = index_np[:]
     retY = np.array(label_data)
-    #print("TYPE:", type(retX))
     print("X SHAPE:", retX.shape)
     print("Y SHAPE:", retY.shape)
     print("UP: ",up/len(retY))
     print("SAME: ", same / len(retY))
     print("DOWN: ", (len(retY) - up - same) / len(retY))
-    #print("Y:", retY[0:30 ])
-    #print("X:",retX[0][0:20])
-    """
-    close_zscore = getZscore(close_dif_data_np)
-    avol_zscore = getZscore(avol_dif_data_np)
-    bvol_zscore = getZscore(bvol_dif_data_np)
+    #print("Y:", retY[0:10 ])
+    #print("X0:",retX[0][0:10])
+    #print("X1:", retX[1][0:10])
+    close_zscore = getZscore(close_tmp_np)
+    index_zscore = getZscore(index_tmp_np)
     from scipy.stats import pearsonr
-    print("pearson avol:", pearsonr(close_zscore, avol_zscore))
-    plt.scatter(close_zscore,avol_zscore)
+    print("pearson:", pearsonr(close_zscore, index_zscore))
+    plt.scatter(close_zscore,index_zscore)
     plt.show()
 
-    print("pearson bvol:", pearsonr(close_zscore, bvol_zscore))
-    plt.scatter(close_zscore,bvol_zscore)
-    plt.show()
-    """
     return retX, retY
+
 
 def getZscore(array):
     close_mean = array.mean()
     close_std  = np.std(array)
     close_score = (array-close_mean)/close_std
     return close_score
+
 '''
 データの生成
 '''
-def get_train_data(symbol, rec_num, maxlen, pred_term, type, db_no):
+def get_train_data(symbol, maxlen, pred_term, type, db_no):
     start = time.time()
-    X, Y = get_redis_data(symbol, rec_num, maxlen, pred_term, type, db_no)
+    X, Y = get_redis_data(symbol, maxlen, pred_term, type, db_no)
     elapsed_time = time.time() - start
     print ("elapsed_time:{0}".format(elapsed_time) + "[sec]")
 
     #データをランダム分割
-    train_X, test_X, train_Y, test_Y = train_test_split(X, Y, train_size=0.9)
+    train_X, test_X, train_Y, test_Y = train_test_split(X, Y, train_size=0.8)
     return train_X, test_X, train_Y, test_Y
 
 
-def get_predict_data(symbol, rec_num, maxlen, pred_term, type, db_no):
+def get_predict_data(symbol, maxlen, pred_term, type, db_no):
     start = time.time()
-    test_X, test_Y = get_redis_data(symbol, rec_num, maxlen, pred_term, type, db_no)
+    test_X, test_Y = get_redis_data(symbol, maxlen, pred_term, type, db_no)
     elapsed_time = time.time() - start
     print("elapsed_time:{0}".format(elapsed_time) + "[sec]")
 
@@ -368,11 +316,11 @@ def do_train():
             'lstm_{epoch:03d}_s' + s + '.hdf5'),
         save_best_only=False)
 
-    train_X, test_X, train_Y, test_Y = get_train_data(symbol, rec_num, maxlen, pred_term, type, db_no)
+    train_X, test_X, train_Y, test_Y = get_train_data(symbol, maxlen, pred_term, type, db_no)
     hist = model_gpu.fit(train_X, train_Y,
                      batch_size=batch_size,
                      epochs=epochs,
-                     callbacks=[early_stopping, CSVLogger(history_file)],)
+                     callbacks=[early_stopping, CSVLogger(history_file)])
 
     #save model, not model_gpu
     #see http://tech.wonderpla.net/entry/2018/01/09/110000

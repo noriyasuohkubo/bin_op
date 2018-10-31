@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from keras.models import Sequential
-from keras.layers.core import Dense, Activation
+from keras.layers.core import Dense, Activation, Dropout
 from keras.layers.recurrent import LSTM
 from keras.optimizers import Adam
 from keras.callbacks import EarlyStopping
@@ -24,6 +24,8 @@ from scipy.ndimage.interpolation import shift
 import tensorflow as tf
 from keras.utils.training_utils import multi_gpu_model
 from keras.optimizers import SGD, Adadelta, Adagrad, Adam, Adamax, RMSprop, Nadam
+from datetime import datetime
+from datetime import timedelta
 
 # record number
 # 2003 s1:14922000
@@ -31,27 +33,42 @@ from keras.optimizers import SGD, Adadelta, Adagrad, Adam, Adamax, RMSprop, Nada
 # 2018 s30:121200
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 gpu_count = 2
-type = "category"
+
 symbol = "EURUSD"
 db_no = 3
 train = True
-start_day = 120 * 24 * 300 * 0
 
-maxlen = 30
-pred_term = 1
-rec_num = 4000000 + maxlen + pred_term + 1
+start = datetime(2018, 1, 1)
+start_score = int(time.mktime(start.timetuple()))
+
+end = datetime(2000, 1, 1)
+end_score = int(time.mktime(end.timetuple()))
+
+maxlen = 600
+pred_term = 6
+rec_num = 1000000 + maxlen + pred_term + 1
 # rec_num = 3600 * 24 * 3
 epochs = 100
-batch_size = 3036 * gpu_count
+batch_size = 6144 * gpu_count
+
 s = "30"
+
+in_num=1
+
 np.random.seed(0)
-n_hidden = 50
-n_hidden2 = 25
-n_hidden3 = 10
+
+n_hidden = 20
+n_hidden2 = 10
+n_hidden3 = 5
 n_hidden4 = 0
+
+
+file_prefix = "multi_in" + str(in_num) + "_" + s + "_m" + str(maxlen) + "_term_" + str(pred_term * int(s)) + "_hid1_" + str(n_hidden) + \
+                          "_hid2_" + str(n_hidden2) + "_hid3_" + str(n_hidden3) + "_hid4_" + str(n_hidden4)
+
 current_dir = os.path.dirname(__file__)
 ini_file = os.path.join(current_dir, "config", "config.ini")
-history_file = os.path.join(current_dir, "history", "history.csv")
+history_file = os.path.join(current_dir,"history", file_prefix +"_history.csv")
 
 config = configparser.ConfigParser()
 config.read(ini_file)
@@ -59,16 +76,14 @@ config.read(ini_file)
 SYMBOL_DB = json.loads(config['lstm']['SYMBOL_DB'])
 MODEL_DIR = config['lstm']['MODEL_DIR']
 
-model_file = os.path.join(MODEL_DIR, "multi_m" + str(maxlen) + "_hid1_" + str(n_hidden)
-                          + "_hid2_" + str(n_hidden2) + "_hid3_" + str(n_hidden3) + "_hid4_" + str(n_hidden4) + ".hdf5")
-
+model_file = os.path.join(MODEL_DIR, file_prefix +".hdf5")
 
 def get_redis_data(symbol, rec_num, maxlen, pred_term, type, db_no):
     print("DB_NO:", db_no)
     r = redis.Redis(host='localhost', port=6379, db=db_no)
     start = time.time()
-    result = r.zrevrange(symbol, 0 + start_day, rec_num + start_day
-                         , withscores=False)
+    #result = r.zrevrange(symbol, 0 + start_day, rec_num + start_day, withscores=False)
+    result = r.zrevrangebyscore(symbol, start_score, end_score, start=0, num=rec_num + 1)
     # print(result)
     close_tmp, high_tmp, low_tmp = [], [], []
     ask_tmp, bid_tmp = [], []
@@ -76,8 +91,8 @@ def get_redis_data(symbol, rec_num, maxlen, pred_term, type, db_no):
     for line in result:
         tmps = json.loads(line.decode('utf-8'))
         close_tmp.append(tmps.get("close"))
-        high_tmp.append(tmps.get("high"))
-        low_tmp.append(tmps.get("low"))
+        #high_tmp.append(tmps.get("high"))
+        #low_tmp.append(tmps.get("low"))
         # ask_tmp.append(tmps.get("ask_volume"))
         # bid_tmp.append(tmps.get("bid_volume"))
         # print(tmps)
@@ -107,20 +122,7 @@ def get_redis_data(symbol, rec_num, maxlen, pred_term, type, db_no):
     same = 0
     data_length = len(close) - maxlen - pred_term - 1
     for i in range(data_length):
-        # close_data.append(preprocessing.scale(close[i:(i+maxlen)]))
-        # high_data.append(preprocessing.scale(high[i:(i + maxlen)]))
-        # low_data.append(preprocessing.scale(low[i:(i + maxlen)]))
-        """
-        c = close[i:(i + maxlen)]
-        c[0] = 1
-        h = high[i:(i + maxlen)]
-        h[0] = 1
-        l = low[i:(i + maxlen)]
-        l[0] = 1
-        close_data.append(c)
-        high_data.append(h)
-        low_data.append(l)
-        """
+
         close_data.append(close[i:(i + maxlen)])
         #high_data.append(high[i:(i + maxlen)])
         #low_data.append(low[i:(i + maxlen)])
@@ -132,18 +134,17 @@ def get_redis_data(symbol, rec_num, maxlen, pred_term, type, db_no):
         # aft = data.ix[i+maxlen+pred_term, "close"]
         # print("val:", bef, aft)
 
-        if type == "mean":
-            label_data.append([close[i + maxlen + pred_term]])
-        elif type == "category":
-            if bef < aft:
-                # 上がった場合
-                label_data.append([1, 0, 0])
-                up = up + 1
-            elif bef > aft:
-                label_data.append([0, 0, 1])
-            else:
-                label_data.append([0, 1, 0])
-                same = same + 1
+
+        if bef < aft:
+            # 上がった場合
+            label_data.append([1, 0, 0])
+            up = up + 1
+        elif bef > aft:
+            label_data.append([0, 0, 1])
+        else:
+            label_data.append([0, 1, 0])
+            same = same + 1
+
     retX = np.array(close_data)
     #high_np = np.array(high_data)
     #low_np = np.array(low_data)
@@ -220,10 +221,13 @@ def create_model(n_out=3):
         model = Sequential()
         model.add(Dense(n_hidden,input_dim=maxlen))
         model.add(Activation('relu'))
+        model.add(Dropout(0.5))
         model.add(Dense(n_hidden2))
         model.add(Activation('relu'))
+        model.add(Dropout(0.5))
         model.add(Dense(n_hidden3))
         model.add(Activation('relu'))
+        model.add(Dropout(0.5))
         model.add(Dense(n_out))
         model.add(Activation('softmax'))
 
@@ -244,32 +248,6 @@ def get_model():
 
     return model, model_gpu
 
-'''
-
-モデル学習
-'''
-
-# epochs = 30
-# batch_size = 128
-
-'''
-# バッチサイズに従って訓練データの数を調整、余ったデータはテストデータに足す
-num = train_X.shape[0] - (train_X.shape[0] % batch_size)
-print("NUM:", num)
-train_x = train_X[:num,:,:]
-train_y = train_Y[:num,:]
-print("train_x.shape:", train_x.shape)
-print("train_y.shape:", train_y.shape)
-
-test_x = np.r_[train_X[num:,:,:], test_X]
-test_y = np.r_[train_Y[num:,:], test_Y]
-'''
-
-
-# callbacks.append(CSVLogger("history.csv"))
-# look
-# https://qiita.com/yukiB/items/f45f0f71bc9739830002
-
 def do_train():
     model, model_gpu = get_model()
     early_stopping = EarlyStopping(monitor='loss', patience=100, verbose=1)
@@ -282,19 +260,8 @@ def do_train():
     hist = model_gpu.fit(train_X, train_Y,
                          batch_size=batch_size,
                          epochs=epochs,
-                         callbacks=[early_stopping, CSVLogger(history_file)])
+                         callbacks=[CSVLogger(history_file),])
 
-    '''
-    学習の進み具合を可視化
-
-    loss = hist.history['loss']
-    plt.rc('font', family='serif')
-    fig = plt.figure()
-    plt.plot(range(len(loss)), loss, label='loss', color='black')
-    plt.xlabel('epochs')
-    plt.show()
-    #plt.savefig(__file__ + '.eps')
-    '''
     # save model, not model_gpu
     # see http://tech.wonderpla.net/entry/2018/01/09/110000
     model.save(model_file)
@@ -306,61 +273,40 @@ def do_train():
 def do_predict(test_X, test_Y, model_gpu=None):
     if model_gpu is None:
         model_gpu = get_model()[1]
-
-    correct_num = 0
     total_num = len(test_Y)
 
-    correct_num7 = 0
-    correct_percent7 = 0.7
-    total_num7 = 0
-
-    correct_num8 = 0
-    correct_percent8 = 0.8
-    total_num8 = 0
-
-    correct_num9 = 0
-    correct_percent9 = 0.9
-    total_num9 = 0
-
     res = model_gpu.predict(test_X, verbose=0)
-    for i, val in enumerate(res):
-        class_num = np.argmax(val)
-        y_correct = np.argmax(test_Y[i])
-        percent = val[class_num]
-        if class_num == y_correct:
-            correct_num += 1
-        if percent >= correct_percent7:
-            total_num7 += 1
-            if class_num == y_correct:
-                correct_num7 += 1
-        if percent >= correct_percent8:
-            total_num8 += 1
-            if class_num == y_correct:
-                correct_num8 += 1
-        if percent >= correct_percent9:
-            total_num9 += 1
-            if class_num == y_correct:
-                correct_num9 += 1
+    print("Predict finished")
 
-    print("Accuracy over ALL:", correct_num / total_num)
+    Acc = np.mean(np.equal(res.argmax(axis=1), test_Y.argmax(axis=1)))
+    print("Accuracy over ALL:", Acc)
     print("Total:", total_num)
-    print("Correct:", correct_num)
+    print("Correct:", total_num * Acc)
 
-    print("Accuracy over ", correct_percent7, ":", correct_num7 / total_num7)
-    print("Total7:", total_num7)
-    print("Correct7:", correct_num7)
+    ind5 = np.where(res >= 0.52)[0]
+    x5 = res[ind5, :]
+    y5 = test_Y[ind5, :]
+    Acc5 = np.mean(np.equal(x5.argmax(axis=1), y5.argmax(axis=1)))
+    print("Accuracy over 0.52:", Acc5)
+    print("Total:", len(x5))
+    print("Correct:", len(x5) * Acc5)
 
-    print("Accuracy over ", correct_percent8, ":", correct_num8 / total_num8)
-    print("Total8:", total_num8)
-    print("Correct8:", correct_num8)
+    ind55 = np.where(res >= 0.55)[0]
+    x55 = res[ind55, :]
+    y55 = test_Y[ind55, :]
+    Acc55 = np.mean(np.equal(x55.argmax(axis=1), y55.argmax(axis=1)))
+    print("Accuracy over 5.5:", Acc55)
+    print("Total:", len(x55))
+    print("Correct:", len(x55) * Acc55)
 
-    print("Accuracy over ", correct_percent9, ":", correct_num9 / total_num9)
-    print("Total9:", total_num9)
-    print("Correct9:", correct_num9)
-    """
-    for i,val in enumerate(res):
-        print(val[0],test_Y[i][0])
-    """
+    ind6 = np.where(res >= 0.6)[0]
+    x6 = res[ind6, :]
+    y6 = test_Y[ind6, :]
+    Acc6 = np.mean(np.equal(x6.argmax(axis=1), y6.argmax(axis=1)))
+    print("Accuracy over 0.6:", Acc6)
+    print("Total:", len(x6))
+    print("Correct:", len(x6) * Acc6)
+
     K.clear_session()
 
     print("END")
@@ -371,5 +317,5 @@ if __name__ == '__main__':
         do_train()
     else:
         # use EURUSD testdata
-        test_X, test_Y = get_predict_data(symbol, 120000, maxlen, pred_term, type, 6)
+        test_X, test_Y = get_predict_data(symbol, 800000, maxlen, pred_term, type, 6)
         do_predict(test_X, test_Y)
