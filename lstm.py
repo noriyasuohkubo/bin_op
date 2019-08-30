@@ -93,7 +93,6 @@ history_file = os.path.join(current_dir,"history", file_prefix +"_history.csv")
 config = configparser.ConfigParser()
 config.read(ini_file)
 
-SYMBOL_DB = json.loads(config['lstm']['SYMBOL_DB'])
 MODEL_DIR = config['lstm']['MODEL_DIR']
 
 model_file = os.path.join(MODEL_DIR, file_prefix +".hdf5")
