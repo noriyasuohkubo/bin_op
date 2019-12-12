@@ -5,7 +5,7 @@ current_dir = os.path.dirname(__file__)
 logging.config.fileConfig( os.path.join(current_dir, "config", "logging.conf"))
 loggerConf = logging.getLogger("app")
 
-symbol = "EURJPY"
+symbol = "GBPJPY"
 #symbol = "GBPUSD"
 #symbols = [symbol, symbol + "1"]
 symbols = [symbol]
@@ -17,8 +17,8 @@ symbols = [symbol,
 """
 
 maxlen = 400
-pred_term = 15
-s = "2"
+pred_term = 36
+s = "5"
 
 merg = ""
 merg_file = ""
@@ -38,7 +38,7 @@ for k, v in sorted(n_hidden.items()):
     hidden = hidden + "_hid" + str(k) + "_" + str(v)
 
 drop = 0.0
-
+#特徴量の種類数 1ならcloseのみ
 in_num = 1
 
 spread = 1
@@ -47,7 +47,7 @@ spread = 1
 suffix = ""
 db_suffix = ""
 
-payout = 950
+payout = 900
 payoff = 1000
 
 fx = False
@@ -109,6 +109,7 @@ file_prefix = symbol + "_bydrop_in" + str(in_num) + "_" + s + "_m" + str(maxlen)
 history_file = os.path.join(current_dir, "history", file_prefix + "_history.csv")
 model_file = os.path.join(model_dir, file_prefix + ".hdf5" + suffix)
 
+#ロガー関数を返す(標準出力と/app/bin_op/log/app.logに出力 )
 def printLog(logger):
     def f(*args):
         print(*args)
@@ -121,6 +122,6 @@ def printLog(logger):
 
 myLogger = printLog(loggerConf)
 
-myLogger("Model is " , model_file)
+#myLogger("Model is " , model_file)
 
 #print("Model is ", model_file)

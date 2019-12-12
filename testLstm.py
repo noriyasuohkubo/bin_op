@@ -36,7 +36,7 @@ logger = logging.getLogger("app")
 myLogger = printLog(logger)
 
 def get_redis_data(sym):
-    myLogger("DB_NO:", db_no)
+    myLogger("Model is ", model_file)
     r = redis.Redis(host='localhost', port=6379, db=db_no, decode_responses=True)
     result = r.zrangebyscore(sym, start_stp, end_stp, withscores=False)
     #result = r.zrevrange(symbol, 0  , rec_num  , withscores=False)
@@ -349,8 +349,8 @@ if __name__ == "__main__":
     spread_data = np.array(spread_data)
     #border_list=[0.55,0.56,0.57,0.58,0.59,0.60,0.61,0.62,0.63,0.64]
     #border_list_show=[0.55,0.56,0.57,0.58]3
-    border_list=[0.55,0.56,0.57,0.58,0.59]
-    border_list_show=[0.55,0.56,0.57,0.58,0.59]
+    border_list=[0.55,0.56,0.57,0.58]
+    border_list_show=[0.55,0.56,0.57]
     result_txt = []
 
     tmp_x = np.array(tmp_x)
