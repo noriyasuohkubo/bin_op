@@ -80,8 +80,8 @@ def get_redis_data(symbol, rec_num, maxlen, pred_term, db_no):
         score = line[1]
         tmps = json.loads(body)
         # askとbid(close)の仲値にする。ハイローに合わせる
-        mid = float((Decimal(str(tmps.get("close"))) + Decimal(str(tmps.get("ask")))) / Decimal("2"))
-        close_tmp.append(mid)
+        #mid = float((Decimal(str(tmps.get("close"))) + Decimal(str(tmps.get("ask")))) / Decimal("2"))
+        close_tmp.append(tmps.get("close"))
         time_tmp.append(tmps.get("time"))
         #score_tmp.append(score)
 

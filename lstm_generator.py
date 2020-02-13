@@ -42,6 +42,15 @@ tensorflow_backend.set_session(session)
 logging.config.fileConfig( os.path.join(current_dir,"config","logging.conf"))
 logger = logging.getLogger("app")
 
+"""
+for k, v in os.environ.items():
+    print(k + ":"+ v)
+"""
+#cuda default usable memory 64GB
+os.environ["TF_CUDA_HOST_MEM_LIMIT_IN_MB"]="100000"
+# tensorflow versin 1.14 ~ TF_GPU_HOST_MEM_LIMIT_IN_MB
+# https://blog.exxactcorp.com/new-tensorflow-release-v1-14-0/
+
 #設定ファイル
 #ini_file = os.path.join(current_dir, "config", "config.ini")
 
@@ -53,13 +62,13 @@ np.random.seed(0)
 #GPU温度を監視するため学習時は/app/monitor/gpu_tmp_monitor.pyを実行しておくこと！
 
 #startからendへ戻ってrec_num分のデータを学習用とする
-rec_num = 40000000 + maxlen + pred_term + 1
+rec_num = 70000000 + (maxlen * close_shift) + (pred_term * close_shift) + 1
 
 start = datetime(2018, 1, 1)
 end = datetime(2000, 1, 1)
 
-#epochs = 5
-epochs = 1
+epochs = 5
+
 def weight_variable(shape, name=None):
     return np.random.normal(scale=.01, size=shape)
 
@@ -81,19 +90,31 @@ def create_model(n_in=in_num, n_out=3):
                            , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
                            ,return_sequences = False))
             """
-            if n_hidden.get(2) is None or n_hidden.get(2) == 0:
-                bidirectional1 = Bidirectional(LSTM(n_hidden[1]
-                                             , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
-                                         ,return_sequences=False)
-                                        , input_shape=(maxlen, n_in)
-                                        )
-            else:
-                bidirectional1 = Bidirectional(LSTM(n_hidden[1]
-                                             , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
-                                         ,return_sequences=True)
-                                        , input_shape=(maxlen, n_in)
-                                        )
-            model.add(bidirectional1)
+            if method == "by":
+                if n_hidden.get(2) is None or n_hidden.get(2) == 0:
+                    model_tmp = Bidirectional(LSTM(n_hidden[1]
+                                                 , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
+                                             ,return_sequences=False)
+                                            , input_shape=(maxlen, n_in)
+                                            )
+                else:
+                    model_tmp = Bidirectional(LSTM(n_hidden[1]
+                                                 , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
+                                             ,return_sequences=True)
+                                            , input_shape=(maxlen, n_in)
+                                            )
+            elif method == "lstm":
+                if n_hidden.get(2) is None or n_hidden.get(2) == 0:
+                    model_tmp = LSTM(n_hidden[1]
+                                        , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
+                                        ,return_sequences=False, input_shape=(maxlen, n_in))
+
+
+                else:
+                    model_tmp = LSTM(n_hidden[1]
+                                        , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
+                                        ,return_sequences=True, input_shape=(maxlen, n_in))
+            model.add(model_tmp)
             model.add(Dropout(drop))
 
             for k, v in sorted(n_hidden.items()):
@@ -101,17 +122,31 @@ def create_model(n_in=in_num, n_out=3):
                     continue
                 if n_hidden[k] != 0:
                     if n_hidden.get(k + 1) is None or n_hidden.get(k+1) == 0:
-                        model.add(Bidirectional(LSTM(n_hidden[k]
-                                                     , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1,
-                                                                                                    seed=None)
-                                                     , return_sequences=False)
-                                                ))
+                        if method == "by":
+                            model.add(Bidirectional(LSTM(n_hidden[k]
+                                                         , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1,
+                                                                                                        seed=None)
+                                                         , return_sequences=False)
+                                                    ))
+                        elif method == "lstm":
+                            model.add(LSTM(n_hidden[k]
+                                                         , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1,
+                                                                                                        seed=None)
+                                                         , return_sequences=False)
+                                                    )
                     else:
-                        model.add(Bidirectional(LSTM(n_hidden[k]
-                                                     , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1,
-                                                                                                    seed=None)
-                                                     , return_sequences=True)
-                                                ))
+                        if method == "by":
+                            model.add(Bidirectional(LSTM(n_hidden[k]
+                                                         , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1,
+                                                                                                        seed=None)
+                                                         , return_sequences=True)
+                                                    ))
+                        elif method == "lstm":
+                            model.add(LSTM(n_hidden[k]
+                                                         , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1,
+                                                                                                        seed=None)
+                                                         , return_sequences=True)
+                                                    )
                     model.add(Dropout(drop))
 
             model.add(Dense(n_out, kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)))
@@ -163,6 +198,8 @@ def get_model():
 # https://qiita.com/yukiB/items/f45f0f71bc9739830002
 
 def do_train():
+    # 処理時間計測
+    t1 = time.time()
     model, model_gpu = get_model()
     early_stopping = EarlyStopping(monitor='loss', patience=100, verbose=1)
     #checkpoint = ModelCheckpoint(filepath= model_file + '_{epoch:02d}_.hdf5', monitor='val_loss', verbose=1, save_best_only=False)
@@ -171,19 +208,26 @@ def do_train():
     checkpoint = MultiGPUCheckpointCallback(filepath= model_file + '_{epoch:02d}_.hdf5', base_model = model, monitor='val_loss', verbose=1, save_best_only=False)
     dataSequence = DataSequence(maxlen, pred_term, s, in_num, batch_size, symbol, spread, rec_num, symbols, start, end, False)
 
+    # see: http://tech.wonderpla.net/entry/2017/10/24/110000
+    # max_queue_size：データ生成処理を最大いくつキューイングしておくかという設定
+    # use_multiprocessing:Trueならマルチプロセス、Falseならマルチスレッドで並列処理
+    # workers:1より大きい数字を指定すると並列処理を実施
     hist = model_gpu.fit_generator(dataSequence,
                                     steps_per_epoch=dataSequence.__len__(),
                                     epochs=epochs,
                                     max_queue_size=process_count * 1,
                                     callbacks=[CSVLogger(history_file), checkpoint],
-                                    use_multiprocessing=False,
-                                    #workers=process_count
+                                    use_multiprocessing=True,
+                                    workers=process_count,
                                    )
-
     # save model, not model_gpu
     # see http://tech.wonderpla.net/entry/2018/01/09/110000
     model.save(model_file)
     print('Model saved')
+
+    t2 = time.time()
+    elapsed_time = t2-t1
+    print("経過時間：" + str(elapsed_time))
 
     if hist is not None:
         # 損失の履歴をプロット

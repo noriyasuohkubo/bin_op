@@ -24,8 +24,8 @@ lgb_eval = lgbm.Dataset(X_valid, y_valid)
 # LightGBM parameters
 params = {
         'task': 'train',
-        'device': 'cpu',
-       # 'gpu_platform_id': 1, 'gpu_device_id' : 0,#1080 Ti
+        'device': 'gpu',
+        'gpu_platform_id': 1, 'gpu_device_id' : 0,#1080 Ti
         'boosting_type': 'gbdt',
         'objective': 'multiclass', #多値分類
         'metric': {'multi_logloss'},
@@ -33,7 +33,7 @@ params = {
         'learning_rate': 0.1, #学習率 default:0.1
         'num_leaves': 23, #木にある分岐の個数 defalut:31
         'min_data_in_leaf': 1,
-        'num_boost_round': 100, #学習回数
+        'num_boost_round': 1000, #学習回数
         'verbose': -1 # 0:学習経過を表示 -1:非表示
 }
 

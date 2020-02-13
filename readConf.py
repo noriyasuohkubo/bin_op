@@ -1,36 +1,70 @@
 import os
 import logging.config
+from decimal import Decimal
+
 #定数ファイル
 current_dir = os.path.dirname(__file__)
 logging.config.fileConfig( os.path.join(current_dir, "config", "logging.conf"))
 loggerConf = logging.getLogger("app")
 
 symbol = "GBPJPY"
-#symbol = "GBPUSD"
-#symbols = [symbol, symbol + "1"]
+
 symbols = [symbol]
 """
 symbols = [symbol,
-           symbol + "10", symbol + "20",symbol + "30", symbol + "40",symbol + "50", symbol + "60",
-           symbol + "70", symbol + "80",symbol + "90", symbol + "100",
-           symbol + "110"]
+           symbol + "2", symbol + "4",symbol + "6", symbol + "8",
+           ]
 """
 
-maxlen = 400
-pred_term = 36
-s = "5"
+# 学習方法 Bidirectionalならby
+# LSTMならlstm
+method = "lstm"
 
-merg = ""
+maxlen = 900
+pred_term = 15
+# 学習データの間隔(秒)
+s = "2"
+
+# 何秒単位でトレードするか
+merg = "2"
+
 merg_file = ""
 if merg != "":
-    merg_file = "_merg_" + str(merg)
+    merg_file = "_merg_" + merg
+
+# DB内データの秒間隔
+db = "2"
+
+# db内データの秒間隔と、学習データの間隔が異る場合のcloseデータをずらす間隔
+# 例えば,30秒予想でDBが2秒間隔で学習データの間隔を10秒とするなら
+# s=10,merg=2でDBデータを5個ずらしてその変化率を学習データとする。
+# だが、DBが1秒間隔で学習データの間隔も1秒だが、トレードタイミングであるmerg=2で,mergの方が大きい数字の場合、
+# ずらす必要はないため、close_shiftは1とし、検証時(testLstm.py)は秒をmergで割った余りが0のデータだけを使って結果をみる
+if s!=db:
+    if int(s) >= int(merg):
+        close_shift = int(Decimal(s) / Decimal(merg))
+    else:
+        close_shift = 1
+else:
+    close_shift = 1
+print("close_shift:" + str(close_shift))
+
+# 学習時、close_shiftが1より大きいならデータ作成時間の秒を学習データの間隔sで割った余りがdata_setの値のものだけつかうようにする
+# またclose_shiftがiならデータ作成時間の秒をトレード間隔mergで割った余りがdata_setの値のものだけつかうようにする
+# 何も設定されていなければ全てのセットを使用する
+#
+data_set = []
+data_set_str = "_set_ALL"
+if len(data_set) != 0:
+    data_set_str = "_set"
+    for set in data_set:
+        data_set_str = data_set_str + "_" + str(set)
 
 n_hidden ={
-    1: 40,
+    1: 90,
     2: 0,
     3: 0,
     4: 0,
-
 }
 
 hidden = ""
@@ -38,7 +72,7 @@ for k, v in sorted(n_hidden.items()):
     hidden = hidden + "_hid" + str(k) + "_" + str(v)
 
 drop = 0.0
-#特徴量の種類数 1ならcloseのみ
+#特徴量の種類数 1ならcloseのみ 2ならspread追加 3なら高値、安値追加
 in_num = 1
 
 spread = 1
@@ -47,7 +81,7 @@ spread = 1
 suffix = ""
 db_suffix = ""
 
-payout = 900
+payout = 1000
 payoff = 1000
 
 fx = False
@@ -93,18 +127,14 @@ drawdown_list = {"drawdown1":(0,-10000),"drawdown2":(-10000,-20000),"drawdown3":
                  "drawdown7": (-60000, -70000),"drawdown8": (-70000, -80000),"drawdown9": (-80000, -90000),"drawdown9over": (-90000, -1000000),}
 
 model_dir = "/app/bin_op/model"
-gpu_count = 2
+gpu_count = 3
 batch_size = 1024 * 8 * gpu_count
 #process_count = multiprocessing.cpu_count() - 1
 process_count = 1
 askbid = "_bid"
 type = "category"
-"""
 
-file_prefix = symbol + "_bydrop_in" + str(in_num) + "_" + s + "_m" + str(maxlen) + "_term_" + str(pred_term * int(s)) + "_hid1_" + str(n_hidden) + \
-                          "_hid2_" + str(n_hidden2) + "_hid3_" + str(n_hidden3) + "_hid4_" + str(n_hidden4) + "_drop_" + str(drop)  + askbid + merg_file
-"""
-file_prefix = symbol + "_bydrop_in" + str(in_num) + "_" + s + "_m" + str(maxlen) + "_term_" + str(pred_term * int(s)) + hidden + "_drop_" + str(drop)  + askbid + merg_file
+file_prefix = symbol + "_" + method + "drop_in" + str(in_num) + "_" + s + "_m" + str(maxlen) + "_term_" + str(pred_term * int(s)) + hidden + "_drop_" + str(drop)  + askbid + merg_file + data_set_str
 
 history_file = os.path.join(current_dir, "history", file_prefix + "_history.csv")
 model_file = os.path.join(model_dir, file_prefix + ".hdf5" + suffix)

@@ -11,13 +11,13 @@ x = diabetes.data
 y = diabetes.target
 clf = LGBMRegressor(max_depth=50,
                        num_leaves=21,
-                    device="cpu",
-                       n_estimators=100,
+                    device="gpu",
+                       n_estimators=1000000,
                        min_child_weight=1,
                        learning_rate=0.001,
                        nthread=24,
                        subsample=0.80,
-#gpu_platform_id=1,gpu_device_id=0,#1080 Ti
+gpu_platform_id=1,gpu_device_id=0,#1080 Ti
                        colsample_bytree=0.80,
                        seed=42)
 

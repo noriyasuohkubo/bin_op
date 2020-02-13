@@ -25,7 +25,7 @@ import pandas as pd
 start = datetime(2018, 1, 1)
 start_stp = int(time.mktime(start.timetuple()))
 
-end = datetime(2018, 12, 25)
+end = datetime(2019, 12, 31)
 
 end_stp = int(time.mktime(end.timetuple()))
 
@@ -37,6 +37,9 @@ myLogger = printLog(logger)
 
 def get_redis_data(sym):
     myLogger("Model is ", model_file)
+    model = get_model()
+    if model is None:
+        return None
     r = redis.Redis(host='localhost', port=6379, db=db_no, decode_responses=True)
     result = r.zrangebyscore(sym, start_stp, end_stp, withscores=False)
     #result = r.zrevrange(symbol, 0  , rec_num  , withscores=False)
@@ -58,10 +61,9 @@ def get_redis_data(sym):
         if askbid == "_ask":
             close_tmp.append(tmps.get("ask"))
         else:
-            mid = float((Decimal(str(tmps.get("close"))) + Decimal(str(tmps.get("ask")))) / Decimal("2"))
-            close_tmp.append(mid)
-            spread_tmp.append(float(Decimal(str(tmps.get("ask"))) - Decimal(str(mid))))
-            #close_tmp.append(tmps.get("close"))
+            close_tmp.append(tmps.get("close"))
+            #mid = float((Decimal(str(tmps.get("close"))) + Decimal(str(tmps.get("ask")))) / Decimal("2"))
+            #spread_tmp.append(float(Decimal(str(tmps.get("ask"))) - Decimal(str(mid))))
 
         time_tmp.append(tmps.get("time"))
 
@@ -72,7 +74,7 @@ def get_redis_data(sym):
     spread_data = []
     up =0
     same =0
-    data_length = len(time_tmp) -1 - maxlen - pred_term -1
+    data_length = len(time_tmp) - close_shift - (maxlen * close_shift) - (pred_term * close_shift) -1
     index_cnt = -1
 
     for i in range(data_length):
@@ -80,7 +82,7 @@ def get_redis_data(sym):
         except_flg = False
 
         if except_index:
-            tmp_datetime = datetime.strptime(time_tmp[1 + i + maxlen -1], '%Y-%m-%d %H:%M:%S')
+            tmp_datetime = datetime.strptime(time_tmp[close_shift + i + (maxlen * close_shift) -1], '%Y-%m-%d %H:%M:%S')
             score = int(time.mktime(tmp_datetime.timetuple()))
             for ind in indicies:
                 ind_datetime = datetime.fromtimestamp(ind)
@@ -97,22 +99,30 @@ def get_redis_data(sym):
             if continue_flg:
                 continue;
         #maxlen前の時刻までつながっていないものは除外。たとえば日付またぎなど
-        tmp_time_bef = datetime.strptime(time_tmp[1 + i], '%Y-%m-%d %H:%M:%S')
-        tmp_time_aft = datetime.strptime(time_tmp[1 + i + maxlen -1], '%Y-%m-%d %H:%M:%S')
+        tmp_time_bef = datetime.strptime(time_tmp[close_shift + i], '%Y-%m-%d %H:%M:%S')
+        tmp_time_aft = datetime.strptime(time_tmp[close_shift + i + (maxlen * close_shift) -1], '%Y-%m-%d %H:%M:%S')
         delta =tmp_time_aft - tmp_time_bef
 
-        if delta.total_seconds() > ((maxlen-1) * int(s)):
+        if delta.total_seconds() >= (maxlen * int(s)):
             #myLogger(tmp_time_aft)
             continue;
-
+        """
         if except_low_spread:
-            if spread_tmp[1 + i + maxlen - 1] <= limit_spread:
+            if spread_tmp[close_shift + i + (maxlen * close_shift) - 1] <= limit_spread:
+                continue
+        """
+        # sよりmergの方が大きい数字の場合、
+        # 検証時(testLstm.py)は秒をmergで割った余りが0のデータだけを使って結果をみる、なぜならDB内データの間隔の方がトレードタイミングより短いため
+        if int(s) < int(merg):
+            sec = time_tmp[close_shift + i][-2:]
+            if Decimal(str(sec)) % Decimal(merg) != 0:
                 continue
 
         index_cnt = index_cnt +1
-        #ハイローオーストラリアの取引時間外を学習対象からはずす
+        #ハイローオーストラリアの取引時間外を学習対象からはずす、予想させる方は対象から外していない
+        #→取引時間を通常営業時間外より更に絞ることによりトレード結果がどう変わるか見るため(例えば、午前中は取引が少ないから勝率低そうなど)
         if except_highlow:
-            if datetime.strptime(time_tmp[1 + i + maxlen -1], '%Y-%m-%d %H:%M:%S').hour in except_list:
+            if datetime.strptime(time_tmp[close_shift + i + (maxlen * close_shift) -1], '%Y-%m-%d %H:%M:%S').hour in except_list:
                 except_flg = True
                 not_except_data.append(False)
                 #continue;
@@ -121,10 +131,16 @@ def get_redis_data(sym):
                 not_except_data.append(True)
 
         ##close_data.append(close[i:(i + maxlen)])
-        time_data.append(time_tmp[1 + i + maxlen -1])
-        price_data.append(close_tmp[1 + i + maxlen -1])
-        end_price_data.append(close_tmp[1 + i + maxlen + pred_term -1])
-        spr = spread_tmp[1 + i + maxlen - 1]
+
+        # 取引する時間
+        time_data.append(time_tmp[close_shift + i + (maxlen * close_shift) -1])
+        # 取引した時のレート
+        price_data.append(close_tmp[close_shift + i + (maxlen * close_shift) -1])
+        # 取引した時の判定レート
+        end_price_data.append(close_tmp[close_shift + i + (maxlen * close_shift) + (pred_term * close_shift) -1])
+        """
+        spr = spread_tmp[close_shift + i + (maxlen * close_shift) - 1]
+        # 取引した時のスプレッド
         spread_data.append(spr)
         flg = False
         for k, v in spread_list.items():
@@ -137,12 +153,13 @@ def get_redis_data(sym):
                 spread_cnt["spread0"] = spread_cnt.get("spread0", 0) + 1
             else:
                 spread_cnt["spread16Over"] = spread_cnt.get("spread16Over",0) + 1
+        """
         #close_abs_data.append(abs(close[i + maxlen -1]))
         #tmp_abs= abs(close[i + maxlen -11:i + maxlen -1])
         #close_abs_data.append(sum(tmp_abs)/len(tmp_abs))
 
-        bef = close_tmp[1 + i + maxlen -1]
-        aft = close_tmp[1 + i + maxlen + pred_term -1]
+        bef = close_tmp[close_shift + i + (maxlen * close_shift) -1]
+        aft = close_tmp[close_shift + i + (maxlen * close_shift) + (pred_term * close_shift) -1]
 
         #正解をいれる
         if float(Decimal(str(aft)) - Decimal(str(bef))) >= float(Decimal(str("0.00001")) * Decimal(str(spread))):
@@ -174,26 +191,28 @@ def get_redis_data(sym):
     time_tmp_np = np.array(time_tmp)
     end_price_np = np.array(end_price_data)
     #close_abs_np = np.array(close_abs_data)
-    spread_np = np.array(spread_data)
+    #spread_np = np.array(spread_data)
     ##retX = np.zeros((len(close_np), maxlen, in_num))
     ##retX[:, :, 0] = close_np[:]
 
     retY = np.array(label_data)
     retZ = np.array(not_except_data)
 
-    myLogger("spread_tmp length:",len(spread_tmp))
+    #myLogger("spread_tmp length:",len(spread_tmp))
     ##myLogger("X SHAPE:", retX.shape)
     myLogger("Y SHAPE:", retY.shape)
     myLogger("Z SHAPE:", retZ.shape)
     myLogger("UP: ",up/len(not_except_index_cnts))
     myLogger("SAME: ", same / len(not_except_index_cnts))
     myLogger("DOWN: ", (len(not_except_index_cnts) - up - same) / len(not_except_index_cnts))
+    """
     for k, v in sorted(spread_cnt.items()):
         myLogger(k,v)
+    """
     not_except_index_cnts_np = np.array(not_except_index_cnts)
 
     ##return retX, retY, price_np, time_np, close_tmp_np, time_tmp_np,end_price_np,close_abs_np
-    return retY, retZ, price_np, time_np, close_tmp_np, time_tmp_np,end_price_np,not_except_index_cnts_np,spread_np
+    return retY, retZ, price_np, time_np, close_tmp_np, time_tmp_np,end_price_np,not_except_index_cnts_np
 
 def get_model():
 
@@ -213,7 +232,6 @@ def do_predict(symbol):
     model = get_model()
     if model is None:
         return None
-
     test_symbols = []
     test_symbols.append(symbol)
     dataSequence = DataSequence(maxlen, pred_term, s, in_num, batch_size, symbol, spread, 0, test_symbols, start, end, True)
@@ -277,7 +295,7 @@ if __name__ == "__main__":
 
     for sym in symbols:
 
-        dataY_tmp, dataZ_tmp, price_data_tmp, time_data_tmp, close_tmp, time_tmp, end_price_data_tmp,not_except_index_cnts, spread_data_tmp = get_redis_data(sym)
+        dataY_tmp, dataZ_tmp, price_data_tmp, time_data_tmp, close_tmp, time_tmp, end_price_data_tmp,not_except_index_cnts = get_redis_data(sym)
         res_tmp = do_predict(sym)
 
         """
@@ -300,7 +318,7 @@ if __name__ == "__main__":
             tmp_result["price_data_tmp"] = price_data_tmp[j]
             tmp_result["time_data_tmp"] = time_data_tmp[j]
             tmp_result["end_price_data_tmp"] = end_price_data_tmp[j]
-            tmp_result["spread_data_tmp"] = spread_data_tmp[j]
+            #tmp_result["spread_data_tmp"] = spread_data_tmp[j]
             result[time_data_tmp[j]] = tmp_result
 
             if dataZ_tmp[j] == True:
@@ -326,7 +344,7 @@ if __name__ == "__main__":
         price_data.append(v["price_data_tmp"])
         time_data.append(v["time_data_tmp"])
         end_price_data.append(v["end_price_data_tmp"])
-        spread_data.append(v["spread_data_tmp"])
+        #spread_data.append(v["spread_data_tmp"])
 
     for k, v in sorted(not_except_result.items()):
         tmp_x.append(v["res_tmp"])
@@ -346,11 +364,11 @@ if __name__ == "__main__":
     close = np.array(close)
     time = np.array(time)
     end_price_data = np.array(end_price_data)
-    spread_data = np.array(spread_data)
-    #border_list=[0.55,0.56,0.57,0.58,0.59,0.60,0.61,0.62,0.63,0.64]
-    #border_list_show=[0.55,0.56,0.57,0.58]3
-    border_list=[0.55,0.56,0.57,0.58]
-    border_list_show=[0.55,0.56,0.57]
+    #spread_data = np.array(spread_data)
+    #border_list=[0.55,0.56,0.57,0.58]
+    #border_list_show=[0.55,0.56,0.57]
+    border_list=[0.558,0.56,0.562]
+    border_list_show=[0.558,0.56,0.562]
     result_txt = []
 
     tmp_x = np.array(tmp_x)
@@ -390,7 +408,7 @@ if __name__ == "__main__":
         p5 = price_data[ind5]
         t5 = time_data[ind5]
         ep5 = end_price_data[ind5]
-        sp5 = spread_data[ind5]
+        #sp5 = spread_data[ind5]
         #ca5 = close_abs_data[ind5]
 
         #myLogger(t5[0:10])
@@ -447,7 +465,7 @@ if __name__ == "__main__":
             time_rate_list[i] = (TimeRate())
 
         ind_tmp = -1
-        for x,y,z,p,t,ep,sp in zip(x5,y5,z5,p5,t5,ep5,sp5):
+        for x,y,z,p,t,ep in zip(x5,y5,z5,p5,t5,ep5):
             hourT = str(datetime.strptime(t, '%Y-%m-%d %H:%M:%S').hour)
             ind_tmp = ind_tmp +1
             not_except_flg = z
@@ -537,6 +555,7 @@ if __name__ == "__main__":
                     #wrong_list_abs[cnt_wrong_abs] = ca
                     #cnt_wrong_abs += 1
             flg = False
+            """
             if trade_flg:
                 for k, v in spread_list.items():
                     if sp > v[0] and sp <= v[1]:
@@ -554,7 +573,7 @@ if __name__ == "__main__":
                         spread_trade["spread16Over"] = spread_trade.get("spread16Over", 0) + 1
                         if win_flg:
                             spread_win["spread16Over"] = spread_win.get("spread16Over", 0) + 1
-
+            """
             money_tmp[t] = money
             loop_cnt = loop_cnt + 1
 
@@ -584,6 +603,7 @@ if __name__ == "__main__":
             if v.all_cnt != 0:
                 myLogger("time:",k," all_cnt:",v.all_cnt," correct_cnt:",v.correct_cnt," correct_rate:",v.correct_cnt/v.all_cnt)
         """
+
         fig = plt.figure()
         #価格の遷移
         ax1 = fig.add_subplot(111)
@@ -611,13 +631,13 @@ if __name__ == "__main__":
             winCnt = perTimeRes[str(k)]["win_count"]
             if cnt != 0:
                 myLogger(str(k) + ": win rate " + str(winCnt / cnt) + " ,count " + str(cnt) + " ,win count " + str(winCnt))
-
+        """
         for k, v in sorted(spread_list.items()):
             if spread_trade.get(k, 0) != 0:
                 myLogger(k, " cnt:", spread_trade.get(k, 0), " win rate:", spread_win.get(k,0)/spread_trade.get(k))
             else:
                 myLogger(k, " cnt:", spread_trade.get(k, 0))
-
+        """
         max_drawdowns.sort()
         myLogger(max_drawdowns[0:10])
 
