@@ -42,14 +42,12 @@ def get_redis_data(sym):
         return None
     r = redis.Redis(host='localhost', port=6379, db=db_no, decode_responses=True)
     result = r.zrangebyscore(sym, start_stp, end_stp, withscores=False)
-    #result = r.zrevrange(symbol, 0  , rec_num  , withscores=False)
-    close_tmp, high_tmp, low_tmp = [], [], []
-    time_tmp, spread_tmp = [], []
+
+    close_tmp, time_tmp = [], []
     not_except_index_cnts = []
-    spread_cnt = {}
+
     myLogger(result[0:5])
-    #result.reverse()
-    #myLogger(index)
+
     indicies = np.ones(len(index), dtype=np.int32)
     #経済指標発表前後2時間は予想対象からはずす
     for i,ind in enumerate(index):
@@ -58,23 +56,15 @@ def get_redis_data(sym):
 
     for line in result:
         tmps = json.loads(line)
-        if askbid == "_ask":
-            close_tmp.append(tmps.get("ask"))
-        else:
-            close_tmp.append(tmps.get("close"))
-            #mid = float((Decimal(str(tmps.get("close"))) + Decimal(str(tmps.get("ask")))) / Decimal("2"))
-            #spread_tmp.append(float(Decimal(str(tmps.get("ask"))) - Decimal(str(mid))))
-
+        close_tmp.append(tmps.get("close"))
         time_tmp.append(tmps.get("time"))
-
-    #close = 10000 * np.log(close_tmp/shift(close_tmp, 1, cval=np.NaN) )[1:]
 
     close_data, high_data, low_data, label_data, time_data, price_data, end_price_data, close_abs_data = [], [], [], [], [], [], [], []
     not_except_data = []
     spread_data = []
     up =0
     same =0
-    data_length = len(time_tmp) - close_shift - (maxlen * close_shift) - (pred_term * close_shift) -1
+    data_length = len(time_tmp) - (maxlen * close_shift) - (pred_term * close_shift) -1
     index_cnt = -1
 
     for i in range(data_length):
@@ -82,7 +72,7 @@ def get_redis_data(sym):
         except_flg = False
 
         if except_index:
-            tmp_datetime = datetime.strptime(time_tmp[close_shift + i + (maxlen * close_shift) -1], '%Y-%m-%d %H:%M:%S')
+            tmp_datetime = datetime.strptime(time_tmp[i + (maxlen * close_shift) -1], '%Y-%m-%d %H:%M:%S')
             score = int(time.mktime(tmp_datetime.timetuple()))
             for ind in indicies:
                 ind_datetime = datetime.fromtimestamp(ind)
@@ -99,22 +89,17 @@ def get_redis_data(sym):
             if continue_flg:
                 continue;
         #maxlen前の時刻までつながっていないものは除外。たとえば日付またぎなど
-        tmp_time_bef = datetime.strptime(time_tmp[close_shift + i], '%Y-%m-%d %H:%M:%S')
-        tmp_time_aft = datetime.strptime(time_tmp[close_shift + i + (maxlen * close_shift) -1], '%Y-%m-%d %H:%M:%S')
+        tmp_time_bef = datetime.strptime(time_tmp[i], '%Y-%m-%d %H:%M:%S')
+        tmp_time_aft = datetime.strptime(time_tmp[i + (maxlen * close_shift) -1], '%Y-%m-%d %H:%M:%S')
         delta =tmp_time_aft - tmp_time_bef
 
         if delta.total_seconds() >= (maxlen * int(s)):
-            #myLogger(tmp_time_aft)
             continue;
-        """
-        if except_low_spread:
-            if spread_tmp[close_shift + i + (maxlen * close_shift) - 1] <= limit_spread:
-                continue
-        """
+
         # sよりmergの方が大きい数字の場合、
         # 検証時(testLstm.py)は秒をmergで割った余りが0のデータだけを使って結果をみる、なぜならDB内データの間隔の方がトレードタイミングより短いため
         if int(s) < int(merg):
-            sec = time_tmp[close_shift + i][-2:]
+            sec = time_tmp[i][-2:]
             if Decimal(str(sec)) % Decimal(merg) != 0:
                 continue
 
@@ -122,44 +107,22 @@ def get_redis_data(sym):
         #ハイローオーストラリアの取引時間外を学習対象からはずす、予想させる方は対象から外していない
         #→取引時間を通常営業時間外より更に絞ることによりトレード結果がどう変わるか見るため(例えば、午前中は取引が少ないから勝率低そうなど)
         if except_highlow:
-            if datetime.strptime(time_tmp[close_shift + i + (maxlen * close_shift) -1], '%Y-%m-%d %H:%M:%S').hour in except_list:
+            if datetime.strptime(time_tmp[i + (maxlen * close_shift) -1], '%Y-%m-%d %H:%M:%S').hour in except_list:
                 except_flg = True
                 not_except_data.append(False)
-                #continue;
             else:
                 not_except_index_cnts.append(index_cnt)
                 not_except_data.append(True)
 
-        ##close_data.append(close[i:(i + maxlen)])
-
         # 取引する時間
-        time_data.append(time_tmp[close_shift + i + (maxlen * close_shift) -1])
+        time_data.append(time_tmp[i + (maxlen * close_shift) -1])
         # 取引した時のレート
-        price_data.append(close_tmp[close_shift + i + (maxlen * close_shift) -1])
+        price_data.append(close_tmp[i + (maxlen * close_shift) -1])
         # 取引した時の判定レート
-        end_price_data.append(close_tmp[close_shift + i + (maxlen * close_shift) + (pred_term * close_shift) -1])
-        """
-        spr = spread_tmp[close_shift + i + (maxlen * close_shift) - 1]
-        # 取引した時のスプレッド
-        spread_data.append(spr)
-        flg = False
-        for k, v in spread_list.items():
-            if spr > v[0] and spr <= v[1]:
-                spread_cnt[k] = spread_cnt.get(k,0) + 1
-                flg = True
-                break
-        if flg == False:
-            if spr < 0:
-                spread_cnt["spread0"] = spread_cnt.get("spread0", 0) + 1
-            else:
-                spread_cnt["spread16Over"] = spread_cnt.get("spread16Over",0) + 1
-        """
-        #close_abs_data.append(abs(close[i + maxlen -1]))
-        #tmp_abs= abs(close[i + maxlen -11:i + maxlen -1])
-        #close_abs_data.append(sum(tmp_abs)/len(tmp_abs))
+        end_price_data.append(close_tmp[i + (maxlen * close_shift) + (pred_term * close_shift) -1])
 
-        bef = close_tmp[close_shift + i + (maxlen * close_shift) -1]
-        aft = close_tmp[close_shift + i + (maxlen * close_shift) + (pred_term * close_shift) -1]
+        bef = close_tmp[i + (maxlen * close_shift) -1]
+        aft = close_tmp[i + (maxlen * close_shift) + (pred_term * close_shift) -1]
 
         #正解をいれる
         if float(Decimal(str(aft)) - Decimal(str(bef))) >= float(Decimal(str("0.00001")) * Decimal(str(spread))):
@@ -173,17 +136,7 @@ def get_redis_data(sym):
             label_data.append([0,1,0])
             if except_flg != True:
                 same = same + 1
-        """
-        if bef < aft:
-            #上がった場合
-            label_data.append([1,0,0])
-            up = up + 1
-        elif bef > aft:
-            label_data.append([0,0,1])
-        else:
-            label_data.append([0,1,0])
-            same = same + 1
-        """
+
     ##close_np = np.array(close_data)
     time_np = np.array(time_data)
     price_np = np.array(price_data)
@@ -232,9 +185,8 @@ def do_predict(symbol):
     model = get_model()
     if model is None:
         return None
-    test_symbols = []
-    test_symbols.append(symbol)
-    dataSequence = DataSequence(maxlen, pred_term, s, in_num, batch_size, symbol, spread, 0, test_symbols, start, end, True)
+
+    dataSequence = DataSequence(0, start, end, True)
 
     res = model.predict_generator(dataSequence, steps=None, max_queue_size=process_count * 1, use_multiprocessing=False, verbose=0)
     myLogger("res", res[0:10])

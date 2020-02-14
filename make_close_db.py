@@ -5,6 +5,7 @@ import redis
 import datetime
 import time
 import gc
+import math
 
 """
 make_base_dbで作成したDBデータにもとづいて
@@ -67,7 +68,7 @@ for i, v in enumerate(close_tmp):
     divide = close_tmp[i] / close_tmp[i - close_shift]
     if close_tmp[i] == close_tmp[i - close_shift]:
         divide = 1
-
+    divide = 10000 * math.log(divide)
     child = {'close': close_tmp[i],
              'close_divide': divide,
              'time': time_tmp[i]}

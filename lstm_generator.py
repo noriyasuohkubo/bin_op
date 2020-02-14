@@ -79,7 +79,7 @@ def mean_pred(y_true, y_pred):
 
     return K.mean(tf.map_fn(lambda x: tf.cond(tf.greater_equal(x[0], z), lambda: o, lambda: z), tmp))
 
-def create_model(n_in=in_num, n_out=3):
+def create_model(n_out=3):
     model = None
 
     with tf.device("/cpu:0"):
@@ -95,25 +95,25 @@ def create_model(n_in=in_num, n_out=3):
                     model_tmp = Bidirectional(LSTM(n_hidden[1]
                                                  , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
                                              ,return_sequences=False)
-                                            , input_shape=(maxlen, n_in)
+                                            , input_shape=(maxlen, len(in_features))
                                             )
                 else:
                     model_tmp = Bidirectional(LSTM(n_hidden[1]
                                                  , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
                                              ,return_sequences=True)
-                                            , input_shape=(maxlen, n_in)
+                                            , input_shape=(maxlen, len(in_features))
                                             )
             elif method == "lstm":
                 if n_hidden.get(2) is None or n_hidden.get(2) == 0:
                     model_tmp = LSTM(n_hidden[1]
                                         , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
-                                        ,return_sequences=False, input_shape=(maxlen, n_in))
+                                        ,return_sequences=False, input_shape=(maxlen, len(in_features)))
 
 
                 else:
                     model_tmp = LSTM(n_hidden[1]
                                         , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
-                                        ,return_sequences=True, input_shape=(maxlen, n_in))
+                                        ,return_sequences=True, input_shape=(maxlen, len(in_features)))
             model.add(model_tmp)
             model.add(Dropout(drop))
 
@@ -156,7 +156,7 @@ def create_model(n_in=in_num, n_out=3):
             model = Sequential()
             model.add(LSTM(n_hidden,
                            kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=0.01, seed=None),
-                           input_shape=(maxlen, n_in)
+                           input_shape=(maxlen, len(in_features))
                            , return_sequences=True))
             model.add(LSTM(n_hidden,
                            kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=0.01, seed=None)
@@ -206,7 +206,7 @@ def do_train():
 
     # see: https://qiita.com/surumetic/items/6a967649b07163da054f
     checkpoint = MultiGPUCheckpointCallback(filepath= model_file + '_{epoch:02d}_.hdf5', base_model = model, monitor='val_loss', verbose=1, save_best_only=False)
-    dataSequence = DataSequence(maxlen, pred_term, s, in_num, batch_size, symbol, spread, rec_num, symbols, start, end, False)
+    dataSequence = DataSequence(rec_num, start, end, False)
 
     # see: http://tech.wonderpla.net/entry/2017/10/24/110000
     # max_queue_size：データ生成処理を最大いくつキューイングしておくかという設定

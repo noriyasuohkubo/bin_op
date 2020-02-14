@@ -20,7 +20,7 @@ symbols = [symbol,
 # LSTMならlstm
 method = "lstm"
 
-maxlen = 900
+maxlen = 600
 pred_term = 15
 # 学習データの間隔(秒)
 s = "2"
@@ -61,7 +61,7 @@ if len(data_set) != 0:
         data_set_str = data_set_str + "_" + str(set)
 
 n_hidden ={
-    1: 90,
+    1: 60,
     2: 0,
     3: 0,
     4: 0,
@@ -72,13 +72,13 @@ for k, v in sorted(n_hidden.items()):
     hidden = hidden + "_hid" + str(k) + "_" + str(v)
 
 drop = 0.0
-#特徴量の種類数 1ならcloseのみ 2ならspread追加 3なら高値、安値追加
-in_num = 1
+#特徴量の種類 close_divide:closeの変化率
+in_features = ["close_divide",]
 
 spread = 1
 #spread = 3
 
-suffix = ""
+suffix = ".90*7"
 db_suffix = ""
 
 payout = 1000
@@ -134,7 +134,7 @@ process_count = 1
 askbid = "_bid"
 type = "category"
 
-file_prefix = symbol + "_" + method + "drop_in" + str(in_num) + "_" + s + "_m" + str(maxlen) + "_term_" + str(pred_term * int(s)) + hidden + "_drop_" + str(drop)  + askbid + merg_file + data_set_str
+file_prefix = symbol + "_" + method + "drop_in" + str(len(in_features)) + "_" + s + "_m" + str(maxlen) + "_term_" + str(pred_term * int(s)) + hidden + "_drop_" + str(drop)  + askbid + merg_file + data_set_str
 
 history_file = os.path.join(current_dir, "history", file_prefix + "_history.csv")
 model_file = os.path.join(model_dir, file_prefix + ".hdf5" + suffix)
