@@ -2,37 +2,43 @@ import json
 import numpy as np
 import os
 import redis
-from datetime import datetime
+import datetime
 import time
+import gc
+import warnings
+warnings.simplefilter('error')
 
 """
-dukaで作成したDBデータにもとづいて
-移動平均などの各インジケータデータを作成する
-
+make_base_dbで作成したDBデータにもとづいて
+closeの標準化を行い、close,timeの値を保存していく
 """
 
-#作成する移動平均の長さリスト
-#avg_dict = {"10":"","20":"","50":"","100":"","200":""}
-avg_dict = {5:"",}
-symbol = "GBPJPY"
+# 処理時間計測
+t1 = time.time()
 
-import_db_no = 3
-export_db_no = 3
+#抽出元のDB名
+symbol_org = "GBPJPY_BASE"
 
-export_host = "127.0.0.1"
-import_host = "127.0.0.1"
+#ウィンドウサイズ(DBデータ何本分の平均と標準偏差を求めるか)
+std_shifts = (15*10,15*30,15*60,15*120)
 
-start = datetime(2018, 5, 1)
+#新規に作成するDB名
+symbol = "GBPJPY_STD"
+
+db_no = 3
+host = "127.0.0.1"
+
+start = datetime.datetime(2009, 1, 1)
 start_stp = int(time.mktime(start.timetuple()))
 
-end = datetime(2018, 5, 27)
+end = datetime.datetime(2020, 1, 1)
 end_stp = int(time.mktime(end.timetuple()))
 
-export_r = redis.Redis(host=export_host, port=6379, db=export_db_no)
-import_r = redis.Redis(host=import_host, port=6379, db=import_db_no)
+redis_db = redis.Redis(host=host, port=6379, db=db_no, decode_responses=True)
 
-"""
-result_data = export_r.zrangebyscore(symbol, start_stp, end_stp, withscores=True)
+result_data = redis_db.zrangebyscore(symbol_org, start_stp, end_stp, withscores=True)
+#result_data = redis_db.zrange(symbol_org, 20000000, 30000000, withscores=True)
+print("result_data length:" + str(len(result_data)))
 
 close_tmp, time_tmp, score_tmp = [], [], []
 
@@ -42,44 +48,55 @@ for line in result_data:
     tmps = json.loads(body)
 
     score_tmp.append(score)
-    # ask,bidの仲値
     close_tmp.append(tmps.get("close"))
     time_tmp.append(tmps.get("time"))
 
-#numpyにする
-close = np.array(close_tmp)
-"""
-close = np.full(10,5)
-print("close.shape")
-#print(close[:-10])
+# メモリ解放
+del result_data
+gc.collect()
+close_np = np.array(close_tmp)
+print("gc end")
+print("close_np len:", len(close_np))
+print(close_np[:10])
 
-for key in avg_dict:
-    avg_tmp = np.convolve(close, np.ones(key) / float(key), 'valid')
-    print(avg_tmp.shape)
-    print(avg_tmp)
-    avg_dict[key] = avg_tmp
+print(time_tmp[0:10])
+print(time_tmp[-10:])
+
+#変化率を作成
+for i, v in enumerate(close_tmp):
+    #変化元(std_shift前のデータ)がないのでとばす
+    if i < (max(std_shifts) -1):
+        continue
+    child = {'close': close_tmp[i],
+             'time': time_tmp[i]}
+
+    for std_shift in std_shifts:
+        try:
+            mean = np.mean(close_np[i - std_shift + 1:i + 1])
+            std = np.std(close_np[i - std_shift + 1:i + 1])
+            if std != 0.0:
+                val = (close_tmp[i] - mean) / std
+            else:
+                val = 0.0
+            child['std' + str(std_shift)] = val
+        except RuntimeWarning as warn:
+            #print("mean", mean)
+            #print("std",std)
+            #print("time",time_tmp[i])
+            print("RuntimeWarning", " score:",score_tmp[i])
+
+    redis_db.zadd(symbol, json.dumps(child), score_tmp[i])
+
+    if i % 10000000 == 0:
+        dt_now = datetime.datetime.now()
+        print(dt_now, " ", i)
 
 
-"""
-for i, val in enumerate(close):
-    for avg in avg_list:
-        # データがたりなく移動平均作成できないばあいcontinue
-        if i < avg -1:
-            continue
 
+t2 = time.time()
+elapsed_time = t2-t1
+print("経過時間：" + str(elapsed_time))
 
-
-    child = {'open': cand.open_price,
-             'close': cand.close_price,
-             'ask': cand.ask_price,
-             'high': cand.high,
-             'low': cand.low,
-             'ask_volume': cand.ask_volume,
-             'bid_volume': cand.bid_volume,
-             'time': stringify(cand.timestamp)}
-
-    imp = import_r.zrangebyscore(symbol + "_TRADE", score, score)
-    if len(imp) == 0:
-        import_r.save()
-        import_r.zadd(symbol + "_TRADE", body, score)
-"""
+#手動にて抽出元のDBを削除して永続化すること！
+#print("now db saving")
+#redis_db.save()

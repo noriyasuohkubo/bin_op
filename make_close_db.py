@@ -53,6 +53,11 @@ del result_data
 gc.collect()
 
 print("gc end")
+print("close_tmp len:", len(close_tmp))
+print(close_tmp[:10])
+
+print(time_tmp[0:10])
+print(time_tmp[-10:])
 
 #変化率を作成
 for i, v in enumerate(close_tmp):
@@ -71,13 +76,6 @@ for i, v in enumerate(close_tmp):
     if i % 10000000 == 0:
         dt_now = datetime.datetime.now()
         print(dt_now, " ", i)
-
-
-print("close_tmp len:", len(close_tmp))
-print(close_tmp[:10])
-
-print(time_tmp[0:10])
-print(time_tmp[-10:])
 
 t2 = time.time()
 elapsed_time = t2-t1
