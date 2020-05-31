@@ -22,7 +22,7 @@ symbol_org = "GBPJPY_BASE"
 close_shift = 1
 
 #新規に作成するDB名
-symbol = "GBPJPY_CLOSE_SHIFT" + str(close_shift)
+symbol = "GBPJPY"
 
 db_no = 3
 host = "127.0.0.1"
@@ -52,7 +52,7 @@ for line in result_data:
 # メモリ解放
 del result_data
 gc.collect()
-
+close_np = np.array(close_tmp)
 print("gc end")
 print("close_tmp len:", len(close_tmp))
 print(close_tmp[:10])
@@ -65,13 +65,14 @@ for i, v in enumerate(close_tmp):
     #変化元(close_shift前のデータ)がないのでとばす
     if i < close_shift:
         continue
-    divide = close_tmp[i] / close_tmp[i - close_shift]
-    if close_tmp[i] == close_tmp[i - close_shift]:
+    divide = close_np[i] / close_np[i - close_shift]
+    if close_np[i] == close_np[i - close_shift]:
         divide = 1
     divide = 10000 * math.log(divide)
     child = {'close': close_tmp[i],
              'close_divide': divide,
              'time': time_tmp[i]}
+
     redis_db.zadd(symbol, json.dumps(child), score_tmp[i])
 
     if i % 10000000 == 0:
