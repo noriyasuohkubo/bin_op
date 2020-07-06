@@ -36,7 +36,7 @@ logger = logging.getLogger("app")
 myLogger = printLog(logger)
 
 def get_redis_data(sym):
-    myLogger("Model is ", model_file)
+    #myLogger("Model is ", model_file)
     model = get_model()
     if model is None:
         return None
@@ -317,10 +317,8 @@ if __name__ == "__main__":
     time = np.array(time)
     end_price_data = np.array(end_price_data)
     #spread_data = np.array(spread_data)
-    #border_list=[0.55,0.56,0.57,0.58]
-    #border_list_show=[0.55,0.56,0.57]
-    border_list=[0.558,0.56,0.562]
-    border_list_show=[0.558,0.56,0.562]
+    border_list=[0.55,0.555,0.56,0.565,0.57]
+    border_list_show=[0.55,0.555,0.56,]
     result_txt = []
 
     tmp_x = np.array(tmp_x)

@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from keras.models import Sequential
 from keras.layers.core import Dense, Activation, Dropout
-from keras.layers.recurrent import LSTM
+from keras.layers.recurrent import LSTM,GRU
 from keras.layers.wrappers import Bidirectional
 from keras.optimizers import Adam
 from keras.callbacks import EarlyStopping
@@ -12,6 +12,7 @@ from sklearn.utils import shuffle
 import redis
 import traceback
 import json
+import keras.optimizers as optimizers
 import time
 import pandas as pd
 from sklearn import preprocessing
@@ -35,12 +36,16 @@ import multiprocessing
 from keras.backend import tensorflow_backend
 from readConf import *
 from multiGPUCheckPointCallback import MultiGPUCheckpointCallback
+from keras.layers import BatchNormalization
+from keras.layers import Input, Concatenate
+from keras.models import Model
 
 config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=False))
 session = tf.Session(config=config)
 tensorflow_backend.set_session(session)
 logging.config.fileConfig( os.path.join(current_dir,"config","logging.conf"))
 logger = logging.getLogger("app")
+myLogger = printLog(logger)
 
 """
 for k, v in os.environ.items():
@@ -62,12 +67,16 @@ np.random.seed(0)
 #GPU温度を監視するため学習時は/app/monitor/gpu_tmp_monitor.pyを実行しておくこと！
 
 #startからendへ戻ってrec_num分のデータを学習用とする
-rec_num = 70000000 + (maxlen * close_shift) + (pred_term * close_shift) + 1
+rec_num = 90000000 + (maxlen * close_shift) + (pred_term * close_shift) + 1
+
+learning_rate = 0.001
 
 start = datetime(2018, 1, 1)
 end = datetime(2000, 1, 1)
 
 epochs = 5
+
+myLogger("rec_num:" + str(rec_num))
 
 def weight_variable(shape, name=None):
     return np.random.normal(scale=.01, size=shape)
@@ -83,6 +92,21 @@ def create_model(n_out=3):
     model = None
 
     with tf.device("/cpu:0"):
+
+        if functional_flg:
+            sec_input = Input(shape=(maxlen, 1))
+            min_input = Input(shape=(maxlen_min, 1))
+            sec_x = LSTM(n_hidden[1]
+                        , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
+                        ,return_sequences=False)(sec_input)
+            min_x = LSTM(min_hidden
+                        , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
+                        ,return_sequences=False)(min_input)
+            x = Concatenate()([sec_x, min_x])
+            main_output = Dense(n_out, kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None) ,activation='softmax')(x)
+            model = Model(inputs=[sec_input, min_input], outputs=[main_output])
+            return model
+
         if type == "category":
             model = Sequential()
             """
@@ -95,25 +119,37 @@ def create_model(n_out=3):
                     model_tmp = Bidirectional(LSTM(n_hidden[1]
                                                  , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
                                              ,return_sequences=False)
-                                            , input_shape=(maxlen, len(in_features))
+                                            , input_shape=(maxlen, x_length)
                                             )
                 else:
                     model_tmp = Bidirectional(LSTM(n_hidden[1]
                                                  , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
                                              ,return_sequences=True)
-                                            , input_shape=(maxlen, len(in_features))
+                                            , input_shape=(maxlen, x_length)
                                             )
             elif method == "lstm":
                 if n_hidden.get(2) is None or n_hidden.get(2) == 0:
                     model_tmp = LSTM(n_hidden[1]
                                         , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
-                                        ,return_sequences=False, input_shape=(maxlen, len(in_features)))
+                                        ,return_sequences=False, input_shape=(maxlen, x_length))
 
 
                 else:
                     model_tmp = LSTM(n_hidden[1]
                                         , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
-                                        ,return_sequences=True, input_shape=(maxlen, len(in_features)))
+                                        ,return_sequences=True, input_shape=(maxlen, x_length))
+            elif method == "gru":
+                if n_hidden.get(2) is None or n_hidden.get(2) == 0:
+                    model_tmp = GRU(n_hidden[1]
+                                        , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
+                                        ,return_sequences=False, input_shape=(maxlen, x_length))
+
+
+                else:
+                    model_tmp = GRU(n_hidden[1]
+                                        , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)
+                                        ,return_sequences=True, input_shape=(maxlen, x_length))
+
             model.add(model_tmp)
             model.add(Dropout(drop))
 
@@ -134,6 +170,12 @@ def create_model(n_out=3):
                                                                                                         seed=None)
                                                          , return_sequences=False)
                                                     )
+                        elif method == "gru":
+                            model.add(GRU(n_hidden[k]
+                                                         , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1,
+                                                                                                        seed=None)
+                                                         , return_sequences=False)
+                                                    )
                     else:
                         if method == "by":
                             model.add(Bidirectional(LSTM(n_hidden[k]
@@ -147,7 +189,19 @@ def create_model(n_out=3):
                                                                                                         seed=None)
                                                          , return_sequences=True)
                                                     )
+                        elif method == "gru":
+                            model.add(GRU(n_hidden[k]
+                                                         , kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1,
+                                                                                                        seed=None)
+                                                         , return_sequences=True)
+                                                    )
                     model.add(Dropout(drop))
+            #HIDDEN add
+            for k, v in sorted(dense_hidden.items()):
+                if dense_hidden[k] != 0:
+                    model.add(Dense(dense_hidden[k], kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None), use_bias=False))
+                    model.add(BatchNormalization())
+                    model.add(Activation('relu'))
 
             model.add(Dense(n_out, kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=1, seed=None)))
             model.add(Activation('softmax'))
@@ -169,7 +223,7 @@ def create_model(n_out=3):
 
 def get_model():
     model = None
-    print("model:" ,model_file)
+    #print("model:" ,model_file)
     if os.path.isfile(model_file):
         model = load_model(model_file, custom_objects={"mean_pred": mean_pred})
         print("Load Model")
@@ -179,11 +233,16 @@ def get_model():
     #model_gpu = model
     model_gpu = multi_gpu_model(model, gpus=gpu_count)
     if type == "category":
+        #学習率
+        adm = optimizers.Adam(lr=learning_rate)
         model_gpu.compile(loss='categorical_crossentropy',
-                          optimizer='adam', metrics=['accuracy'])
+                          optimizer=adm, metrics=['accuracy'])
     elif type == 'mean':
         model_gpu.compile(loss='mean_squared_error',
                           optimizer="rmsprop", metrics=[mean_pred])
+
+    print(model.summary())
+
     return model, model_gpu
 
 

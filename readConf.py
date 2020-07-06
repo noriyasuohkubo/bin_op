@@ -18,9 +18,19 @@ symbols = [symbol,
 
 # 学習方法 Bidirectionalならby
 # LSTMならlstm
+#method = "lstm"
 method = "lstm"
 
-maxlen = 600
+# Functional API
+functional_flg = True
+
+functional_str = ""
+if functional_flg:
+    functional_str = "_func"
+
+maxlen = 400
+maxlen_min = 200
+
 pred_term = 15
 # 学習データの間隔(秒)
 s = "2"
@@ -61,24 +71,67 @@ if len(data_set) != 0:
         data_set_str = data_set_str + "_" + str(set)
 
 n_hidden ={
-    1: 60,
+    1: 40,
     2: 0,
     3: 0,
     4: 0,
 }
+dense_hidden ={
+    1: 0,
+    2: 0,
+}
+
+min_hidden = 20
+
+min_hidden_str = ""
+if min_hidden != "":
+    min_hidden_str = "_mhid_" + str(min_hidden)
 
 hidden = ""
+d_hidden = ""
+
 for k, v in sorted(n_hidden.items()):
     hidden = hidden + "_hid" + str(k) + "_" + str(v)
+
+for k, v in sorted(dense_hidden.items()):
+    if v !=0:
+        d_hidden = d_hidden + "_hid" + str(k) + "_" + str(v)
 
 drop = 0.0
 #特徴量の種類 close_divide:closeの変化率
 in_features = ["close_divide",]
 
+in_features_str = ""
+for feature in in_features:
+    if in_features_str == "":
+        in_features_str = feature
+    else:
+        in_features_str = in_features_str + "-" + feature
+
+#使用するより大きい足のデータ
+#例:2秒足データに加えて1分足のデータも使用する
+in_longers = ["min_score",]
+#in_longers = []
+
+in_longers_str = ""
+for longer in in_longers:
+    if in_longers_str == "":
+        in_longers_str = "_" + longer
+    else:
+        in_longers_str = in_longers_str + "-" + longer
+
+in_longers_db = {"min_score":"GBPJPY_M1",}
+
+#インプットの特徴量の種類数
+x_length = len(in_features) + len(in_longers)
+
+if functional_flg:
+    x_length = len(in_features)
+
 spread = 1
 #spread = 3
 
-suffix = ".90*7"
+suffix = ""
 db_suffix = ""
 
 payout = 1000
@@ -134,7 +187,9 @@ process_count = 1
 askbid = "_bid"
 type = "category"
 
-file_prefix = symbol + "_" + method + "drop_in" + str(len(in_features)) + "_" + s + "_m" + str(maxlen) + "_term_" + str(pred_term * int(s)) + hidden + "_drop_" + str(drop)  + askbid + merg_file + data_set_str
+#file_prefix = symbol + "_" + method + "drop_in" + str(len(in_features)) + "_" + s + "_m" + str(maxlen) + "_term_" + str(pred_term * int(s)) + hidden + "_drop_" + str(drop)  + askbid + merg_file + data_set_str
+file_prefix = symbol+ "_" + method + functional_str + "_" + in_features_str + in_longers_str + "_" + s + "_m" + str(maxlen) + "(" + str(maxlen_min) + ")" + "_term_" + str(pred_term * int(s)) + hidden + d_hidden + min_hidden_str + "_drop_" + str(drop)  + askbid + merg_file + data_set_str
+
 
 history_file = os.path.join(current_dir, "history", file_prefix + "_history.csv")
 model_file = os.path.join(model_dir, file_prefix + ".hdf5" + suffix)
@@ -152,6 +207,6 @@ def printLog(logger):
 
 myLogger = printLog(loggerConf)
 
-#myLogger("Model is " , model_file)
+myLogger("Model is " , model_file)
 
 #print("Model is ", model_file)

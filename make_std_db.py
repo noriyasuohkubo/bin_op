@@ -6,6 +6,9 @@ import datetime
 import time
 import gc
 import warnings
+import math
+
+
 warnings.simplefilter('error')
 
 """
@@ -20,10 +23,12 @@ t1 = time.time()
 symbol_org = "GBPJPY_BASE"
 
 #ウィンドウサイズ(DBデータ何本分の平均と標準偏差を求めるか)
-std_shifts = (15*10,15*30,15*60,15*120)
+std_shifts = (15*30,15*60,15*90,15*120,15*150,15*180,)
+
+close_shift = 1
 
 #新規に作成するDB名
-symbol = "GBPJPY_STD"
+symbol = "GBPJPY"
 
 db_no = 3
 host = "127.0.0.1"
@@ -67,7 +72,12 @@ for i, v in enumerate(close_tmp):
     #変化元(std_shift前のデータ)がないのでとばす
     if i < (max(std_shifts) -1):
         continue
+    divide = close_np[i] / close_np[i - close_shift]
+    if close_np[i] == close_np[i - close_shift]:
+        divide = 1
+    divide = 10000 * math.log(divide)
     child = {'close': close_tmp[i],
+             'close_divide': divide,
              'time': time_tmp[i]}
 
     for std_shift in std_shifts:

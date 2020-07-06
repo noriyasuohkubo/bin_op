@@ -10,19 +10,26 @@ import math
 """
 make_base_dbで作成したDBデータにもとづいて
 closeの変化率とclose,timeの値を保存していく
+
+※dukasのデータは日本時間の土曜朝7時から月曜朝7時までデータがない
 """
+
 
 # 処理時間計測
 t1 = time.time()
 
 #抽出元のDB名
-symbol_org = "GBPJPY_BASE"
+symbol_org = "GBPJPY_M1"
 
 
 close_shift = 1
 
 #新規に作成するDB名
-symbol = "GBPJPY"
+symbol = "GBPJPY_M"
+
+#直前の1分足のスコアをデータに含めるか
+#例えば12：03：44なら12:02
+include_min = False
 
 db_no = 3
 host = "127.0.0.1"
@@ -65,13 +72,19 @@ for i, v in enumerate(close_tmp):
     #変化元(close_shift前のデータ)がないのでとばす
     if i < close_shift:
         continue
+
     divide = close_np[i] / close_np[i - close_shift]
     if close_np[i] == close_np[i - close_shift]:
         divide = 1
     divide = 10000 * math.log(divide)
+
     child = {'close': close_tmp[i],
-             'close_divide': divide,
-             'time': time_tmp[i]}
+            'close_divide': divide,
+            'time': time_tmp[i]}
+
+    if include_min:
+        tmp_score = int(score_tmp[i]) - (int(time_tmp[i][-2:]) % 60) - 60
+        child['min_score'] = tmp_score
 
     redis_db.zadd(symbol, json.dumps(child), score_tmp[i])
 
