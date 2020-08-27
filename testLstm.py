@@ -56,7 +56,8 @@ def get_redis_data(sym):
 
     for line in result:
         tmps = json.loads(line)
-        close_tmp.append(tmps.get("close"))
+        #close_tmp.append(tmps.get("close"))
+        close_tmp.append(tmps.get("open"))
         time_tmp.append(tmps.get("time"))
 
     close_data, high_data, low_data, label_data, time_data, price_data, end_price_data, close_abs_data = [], [], [], [], [], [], [], []

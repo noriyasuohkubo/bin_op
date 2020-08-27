@@ -22,14 +22,18 @@ symbols = [symbol,
 method = "lstm"
 
 # Functional API
-functional_flg = True
+functional_flg = False
 
 functional_str = ""
 if functional_flg:
     functional_str = "_func"
 
-maxlen = 400
-maxlen_min = 200
+maxlen = 600
+maxlen_min = 0
+
+maxlen_min_str = ""
+if maxlen_min != 0:
+    maxlen_min_str = "(" + str(maxlen_min) + ")"
 
 pred_term = 15
 # 学習データの間隔(秒)
@@ -71,7 +75,7 @@ if len(data_set) != 0:
         data_set_str = data_set_str + "_" + str(set)
 
 n_hidden ={
-    1: 40,
+    1: 60,
     2: 0,
     3: 0,
     4: 0,
@@ -81,7 +85,7 @@ dense_hidden ={
     2: 0,
 }
 
-min_hidden = 20
+min_hidden = ""
 
 min_hidden_str = ""
 if min_hidden != "":
@@ -99,7 +103,9 @@ for k, v in sorted(dense_hidden.items()):
 
 drop = 0.0
 #特徴量の種類 close_divide:closeの変化率
-in_features = ["close_divide",]
+#in_features = ["close_divide",]
+in_features = ["open_divide",]
+
 
 in_features_str = ""
 for feature in in_features:
@@ -110,8 +116,8 @@ for feature in in_features:
 
 #使用するより大きい足のデータ
 #例:2秒足データに加えて1分足のデータも使用する
-in_longers = ["min_score",]
-#in_longers = []
+#in_longers = ["min_score",]
+in_longers = []
 
 in_longers_str = ""
 for longer in in_longers:
@@ -131,7 +137,7 @@ if functional_flg:
 spread = 1
 #spread = 3
 
-suffix = ""
+suffix = ".90*17"
 db_suffix = ""
 
 payout = 1000
@@ -188,8 +194,9 @@ askbid = "_bid"
 type = "category"
 
 #file_prefix = symbol + "_" + method + "drop_in" + str(len(in_features)) + "_" + s + "_m" + str(maxlen) + "_term_" + str(pred_term * int(s)) + hidden + "_drop_" + str(drop)  + askbid + merg_file + data_set_str
-file_prefix = symbol+ "_" + method + functional_str + "_" + in_features_str + in_longers_str + "_" + s + "_m" + str(maxlen) + "(" + str(maxlen_min) + ")" + "_term_" + str(pred_term * int(s)) + hidden + d_hidden + min_hidden_str + "_drop_" + str(drop)  + askbid + merg_file + data_set_str
+#file_prefix = symbol+ "_" + method + functional_str + "_" + in_features_str + in_longers_str + "_" + s + "_m" + str(maxlen) + maxlen_min_str + "_term_" + str(pred_term * int(s)) + hidden + d_hidden + min_hidden_str + "_drop_" + str(drop)  + askbid + merg_file + data_set_str
 
+file_prefix = symbol+ "_" + method + functional_str + "_close_divide_" + s + "_m" + str(maxlen) + maxlen_min_str + "_term_" + str(pred_term * int(s)) + hidden + d_hidden + min_hidden_str + "_drop_" + str(drop)  + askbid + merg_file + data_set_str
 
 history_file = os.path.join(current_dir, "history", file_prefix + "_history.csv")
 model_file = os.path.join(model_dir, file_prefix + ".hdf5" + suffix)

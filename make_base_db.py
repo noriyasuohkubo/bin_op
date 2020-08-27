@@ -7,7 +7,7 @@ import time
 
 """
 dukaで作成したDBデータにもとづいて
-close,timeのみ抽出する(DB軽量化のため)
+close,open,timeのみ抽出する(DB軽量化のため)
 """
 
 # 処理時間計測
@@ -38,6 +38,7 @@ for i, v in enumerate(result_data):
     tmps = json.loads(body)
 
     child = {'close': tmps.get("close"),
+             'open': tmps.get("open"),
              'time': tmps.get("time")}
     redis_db.zadd(symbol, json.dumps(child), score)
 
