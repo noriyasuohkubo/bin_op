@@ -99,8 +99,8 @@ class DataSequence(Sequence):
             for line in result:
                 tmps = json.loads(line)
                 #closeはask,bidの仲値がDBに入っている
-                #close_tmp.append(tmps.get("close"))
-                close_tmp.append(tmps.get("open"))
+                close_tmp.append(tmps.get("close"))
+                #close_tmp.append(tmps.get("open"))
                 time_tmp.append(tmps.get("time"))
 
                 for i,feature in enumerate(in_features):

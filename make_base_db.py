@@ -25,7 +25,7 @@ host = "127.0.0.1"
 start = datetime.datetime(2009, 1, 1)
 start_stp = int(time.mktime(start.timetuple()))
 
-end = datetime.datetime(2020, 1, 1)
+end = datetime.datetime(2020, 1, 2)
 end_stp = int(time.mktime(end.timetuple()))
 
 redis_db = redis.Redis(host=host, port=6379, db=db_no, decode_responses=True)

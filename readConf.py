@@ -103,8 +103,8 @@ for k, v in sorted(dense_hidden.items()):
 
 drop = 0.0
 #特徴量の種類 close_divide:closeの変化率
-#in_features = ["close_divide",]
-in_features = ["open_divide",]
+in_features = ["close_divide",]
+#in_features = ["open_divide",]
 
 
 in_features_str = ""
@@ -186,7 +186,7 @@ drawdown_list = {"drawdown1":(0,-10000),"drawdown2":(-10000,-20000),"drawdown3":
                  "drawdown7": (-60000, -70000),"drawdown8": (-70000, -80000),"drawdown9": (-80000, -90000),"drawdown9over": (-90000, -1000000),}
 
 model_dir = "/app/bin_op/model"
-gpu_count = 3
+gpu_count = 2
 batch_size = 1024 * 8 * gpu_count
 #process_count = multiprocessing.cpu_count() - 1
 process_count = 1
@@ -194,9 +194,8 @@ askbid = "_bid"
 type = "category"
 
 #file_prefix = symbol + "_" + method + "drop_in" + str(len(in_features)) + "_" + s + "_m" + str(maxlen) + "_term_" + str(pred_term * int(s)) + hidden + "_drop_" + str(drop)  + askbid + merg_file + data_set_str
-#file_prefix = symbol+ "_" + method + functional_str + "_" + in_features_str + in_longers_str + "_" + s + "_m" + str(maxlen) + maxlen_min_str + "_term_" + str(pred_term * int(s)) + hidden + d_hidden + min_hidden_str + "_drop_" + str(drop)  + askbid + merg_file + data_set_str
+file_prefix = symbol+ "_" + method + functional_str + "_" + in_features_str + in_longers_str + "_" + s + "_m" + str(maxlen) + maxlen_min_str + "_term_" + str(pred_term * int(s)) + hidden + d_hidden + min_hidden_str + "_drop_" + str(drop)  + askbid + merg_file + data_set_str
 
-file_prefix = symbol+ "_" + method + functional_str + "_close_divide_" + s + "_m" + str(maxlen) + maxlen_min_str + "_term_" + str(pred_term * int(s)) + hidden + d_hidden + min_hidden_str + "_drop_" + str(drop)  + askbid + merg_file + data_set_str
 
 history_file = os.path.join(current_dir, "history", file_prefix + "_history.csv")
 model_file = os.path.join(model_dir, file_prefix + ".hdf5" + suffix)

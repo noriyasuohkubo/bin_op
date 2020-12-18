@@ -91,7 +91,7 @@ def mean_pred(y_true, y_pred):
 def create_model(n_out=3):
     model = None
 
-    with tf.device("/cpu:0"):
+    with tf.device("/cpu:0"):#モデルの構築はOOMエラー対策のため、CPUで明示的に行う必要がある
 
         if functional_flg:
             sec_input = Input(shape=(maxlen, 1))

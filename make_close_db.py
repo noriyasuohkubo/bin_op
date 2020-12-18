@@ -6,6 +6,7 @@ import datetime
 import time
 import gc
 import math
+from decimal import Decimal
 
 """
 make_base_dbで作成したDBデータにもとづいて
@@ -19,13 +20,13 @@ closeの変化率とclose,timeの値を保存していく
 t1 = time.time()
 
 #抽出元のDB名
-symbol_org = "GBPJPY_M1"
+symbol_org = "GBPJPY_BASE"
 
 
 close_shift = 1
 
 #新規に作成するDB名
-symbol = "GBPJPY_M"
+symbol = "GBPJPY"
 
 #直前の1分足のスコアをデータに含めるか
 #例えば12：03：44なら12:02
@@ -53,19 +54,23 @@ for line in result_data:
     tmps = json.loads(body)
 
     score_tmp.append(score)
-    close_tmp.append(tmps.get("close"))
+    close_tmp.append( float( Decimal(str(tmps.get("close"))) * Decimal(str(100)))  ) #dukaのレートは本来のレートの100分の1なのでもとにもどす
     time_tmp.append(tmps.get("time"))
 
-# メモリ解放
-del result_data
-gc.collect()
 close_np = np.array(close_tmp)
 print("gc end")
 print("close_tmp len:", len(close_tmp))
 print(close_tmp[:10])
 
-print(time_tmp[0:10])
-print(time_tmp[-10:])
+print("start:", datetime.datetime.fromtimestamp(score_tmp[0]))
+print("end:", datetime.datetime.fromtimestamp(score_tmp[-1]))
+
+# メモリ解放
+del result_data, close_tmp
+#gc.collect()
+
+#変化率のlogをとる
+math_log = False
 
 #変化率を作成
 for i, v in enumerate(close_tmp):
@@ -76,15 +81,22 @@ for i, v in enumerate(close_tmp):
     divide = close_np[i] / close_np[i - close_shift]
     if close_np[i] == close_np[i - close_shift]:
         divide = 1
-    divide = 10000 * math.log(divide)
 
-    child = {'close': close_tmp[i],
-            'close_divide': divide,
-            'time': time_tmp[i]}
+    if math_log:
+        divide = 10000 * math.log(divide)
+    else:
+        divide = 10000 * (divide - 1)
 
+    child = {'c': close_tmp[i],
+            'd': divide,
+            't': time_tmp[i],
+             }
+
+    """
     if include_min:
         tmp_score = int(score_tmp[i]) - (int(time_tmp[i][-2:]) % 60) - 60
         child['min_score'] = tmp_score
+    """
 
     redis_db.zadd(symbol, json.dumps(child), score_tmp[i])
 
