@@ -284,9 +284,7 @@ def do_train():
     model.save(model_file)
     print('Model saved')
 
-    t2 = time.time()
-    elapsed_time = t2-t1
-    print("経過時間：" + str(elapsed_time))
+    print("経過時間：", time.time() - t1)
 
     if hist is not None:
         # 損失の履歴をプロット
@@ -294,7 +292,6 @@ def do_train():
         plt.title('model loss')
         plt.show()
 
-    K.clear_session()
 
     print("END")
 

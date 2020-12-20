@@ -17,194 +17,34 @@ from datetime import timedelta
 import time
 from indices import index
 from decimal import Decimal
-from DataSequence import DataSequence
-from readConf import *
+from DataSequence2 import DataSequence2
+from readConf2 import *
 import pandas as pd
+from lstm_generator2 import create_model
 
 start = datetime(2018, 1, 1)
-start_stp = int(time.mktime(start.timetuple()))
-
 end = datetime(2019, 12, 31)
 
-end_stp = int(time.mktime(end.timetuple()))
+#2秒ごとの成績を計算する場合
+per_sec_flg = True
+#2秒ごとの成績を秒をキーとしてトレード回数と勝利数を保持
+#{key:[trade_num,win_num]}
+per_sec_dict = {}
+per_sec = 2
+if per_sec_flg:
+    for i in range(60):
+        if i % per_sec == 0:
+            per_sec_dict[i] = [0,0]
 
-np.random.seed(0)
-
-logging.config.fileConfig( os.path.join(current_dir,"config","logging.conf"))
-logger = logging.getLogger("app")
-myLogger = printLog(logger)
-
-def get_redis_data(sym):
-    #myLogger("Model is ", model_file)
-    model = get_model()
-    if model is None:
-        return None
-    r = redis.Redis(host='localhost', port=6379, db=db_no, decode_responses=True)
-    result = r.zrangebyscore(sym, start_stp, end_stp, withscores=False)
-
-    close_tmp, time_tmp = [], []
-    not_except_index_cnts = []
-
-    myLogger(result[0:5])
-
-    indicies = np.ones(len(index), dtype=np.int32)
-    #経済指標発表前後2時間は予想対象からはずす
-    for i,ind in enumerate(index):
-        tmp_datetime = datetime.strptime(ind, '%Y-%m-%d %H:%M:%S')
-        indicies[i] = int(time.mktime(tmp_datetime.timetuple()))
-
-    for line in result:
-        tmps = json.loads(line)
-        close_tmp.append(tmps.get("close"))
-        #close_tmp.append(tmps.get("open"))
-        time_tmp.append(tmps.get("time"))
-
-    close_data, high_data, low_data, label_data, time_data, price_data, end_price_data, close_abs_data = [], [], [], [], [], [], [], []
-    not_except_data = []
-    spread_data = []
-    up =0
-    same =0
-    data_length = len(time_tmp) - (maxlen * close_shift) - (pred_term * close_shift) -1
-    index_cnt = -1
-
-    for i in range(data_length):
-        continue_flg = False
-        except_flg = False
-
-        if except_index:
-            tmp_datetime = datetime.strptime(time_tmp[i + (maxlen * close_shift) -1], '%Y-%m-%d %H:%M:%S')
-            score = int(time.mktime(tmp_datetime.timetuple()))
-            for ind in indicies:
-                ind_datetime = datetime.fromtimestamp(ind)
-
-                bef_datetime = ind_datetime - timedelta(minutes=10)
-                aft_datetime = ind_datetime + timedelta(minutes=30)
-                bef_time = int(time.mktime(bef_datetime.timetuple()))
-                aft_time = int(time.mktime(aft_datetime.timetuple()))
-
-                if bef_time <= score and score <= aft_time:
-                    continue_flg = True
-                    break;
-
-            if continue_flg:
-                continue;
-        #maxlen前の時刻までつながっていないものは除外。たとえば日付またぎなど
-        tmp_time_bef = datetime.strptime(time_tmp[i], '%Y-%m-%d %H:%M:%S')
-        tmp_time_aft = datetime.strptime(time_tmp[i + (maxlen * close_shift) -1], '%Y-%m-%d %H:%M:%S')
-        delta =tmp_time_aft - tmp_time_bef
-
-        if delta.total_seconds() >= (maxlen * int(s)):
-            continue;
-
-        # sよりmergの方が大きい数字の場合、
-        # 検証時(testLstm.py)は秒をmergで割った余りが0のデータだけを使って結果をみる、なぜならDB内データの間隔の方がトレードタイミングより短いため
-        if int(s) < int(merg):
-            sec = time_tmp[i][-2:]
-            if Decimal(str(sec)) % Decimal(merg) != 0:
-                continue
-
-        index_cnt = index_cnt +1
-        #ハイローオーストラリアの取引時間外を学習対象からはずす、予想させる方は対象から外していない
-        #→取引時間を通常営業時間外より更に絞ることによりトレード結果がどう変わるか見るため(例えば、午前中は取引が少ないから勝率低そうなど)
-        if except_highlow:
-            if datetime.strptime(time_tmp[i + (maxlen * close_shift) -1], '%Y-%m-%d %H:%M:%S').hour in except_list:
-                except_flg = True
-                not_except_data.append(False)
-            else:
-                not_except_index_cnts.append(index_cnt)
-                not_except_data.append(True)
-
-        # 取引する時間
-        time_data.append(time_tmp[i + (maxlen * close_shift) -1])
-        # 取引した時のレート
-        price_data.append(close_tmp[i + (maxlen * close_shift) -1])
-        # 取引した時の判定レート
-        end_price_data.append(close_tmp[i + (maxlen * close_shift) + (pred_term * close_shift) -1])
-
-        bef = close_tmp[i + (maxlen * close_shift) -1]
-        aft = close_tmp[i + (maxlen * close_shift) + (pred_term * close_shift) -1]
-
-        #正解をいれる
-        if float(Decimal(str(aft)) - Decimal(str(bef))) >= float(Decimal(str("0.00001")) * Decimal(str(spread))):
-            #上がった場合
-            label_data.append([1,0,0])
-            if except_flg != True:
-                up = up + 1
-        elif  float(Decimal(str(bef)) - Decimal(str(aft))) >= float(Decimal(str("0.00001")) * Decimal(str(spread))):
-            label_data.append([0,0,1])
-        else:
-            label_data.append([0,1,0])
-            if except_flg != True:
-                same = same + 1
-
-    ##close_np = np.array(close_data)
-    time_np = np.array(time_data)
-    price_np = np.array(price_data)
-    close_tmp_np = np.array(close_tmp)
-    time_tmp_np = np.array(time_tmp)
-    end_price_np = np.array(end_price_data)
-    #close_abs_np = np.array(close_abs_data)
-    #spread_np = np.array(spread_data)
-    ##retX = np.zeros((len(close_np), maxlen, in_num))
-    ##retX[:, :, 0] = close_np[:]
-
-    retY = np.array(label_data)
-    retZ = np.array(not_except_data)
-
-    #myLogger("spread_tmp length:",len(spread_tmp))
-    ##myLogger("X SHAPE:", retX.shape)
-    myLogger("Y SHAPE:", retY.shape)
-    myLogger("Z SHAPE:", retZ.shape)
-    myLogger("UP: ",up/len(not_except_index_cnts))
-    myLogger("SAME: ", same / len(not_except_index_cnts))
-    myLogger("DOWN: ", (len(not_except_index_cnts) - up - same) / len(not_except_index_cnts))
-    """
-    for k, v in sorted(spread_cnt.items()):
-        myLogger(k,v)
-    """
-    not_except_index_cnts_np = np.array(not_except_index_cnts)
-
-    ##return retX, retY, price_np, time_np, close_tmp_np, time_tmp_np,end_price_np,close_abs_np
-    return retY, retZ, price_np, time_np, close_tmp_np, time_tmp_np,end_price_np,not_except_index_cnts_np
-
-def get_model():
-
-    if os.path.isfile(model_file):
-        model = load_model(model_file)
-        model.compile(loss='categorical_crossentropy',
-                      optimizer='adam', metrics=['accuracy'])
-        myLogger("Load Model")
-        return model_gpu
-    else:
-        myLogger("the Model not exists!")
-        return None
-
-#def do_predict(test_X, test_Y):
-def do_predict(symbol):
-    model = get_model()
-    if model is None:
-        return None
-
-    dataSequence = DataSequence(0, start, end, True)
-
-    res = model.predict_generator(dataSequence, steps=None, max_queue_size=process_count * 1, use_multiprocessing=False, verbose=0)
-    myLogger("res", res[0:10])
-    #res = model.predict(test_X, verbose=0, batch_size=batch_size)
-    myLogger("Predict finished")
-
-    K.clear_session()
-    return res
-
-class TimeRate():
-    def __init__(self):
-        self.all_cnt = 0
-        self.correct_cnt = 0
-
+#border以上の予想パーセントをしたものから正解率と予想数と正解数を返す
 def getAcc(res, border, dataY):
     up = res[:, 0]
     down = res[:, 2]
+
+    #閾値以上の予想パーセンテージのみ抽出
     up_ind5 = np.where(up >= border)[0]
     down_ind5 = np.where(down >= border)[0]
+
     x5_up = res[up_ind5,:]
     y5_up= dataY[up_ind5,:]
     x5_down = res[down_ind5,:]
@@ -215,14 +55,15 @@ def getAcc(res, border, dataY):
     down_eq = np.equal(x5_down.argmax(axis=1), y5_down.argmax(axis=1))
     down_cor_length = int(len(np.where(down_eq == True)[0]))
 
-    if (len(up_ind5) + len(down_ind5)) ==0:
+    total_num = len(up_ind5) + len(down_ind5)
+    correct_num = up_cor_length + down_cor_length
+
+    if total_num ==0:
         Acc =0
     else:
-        Acc = (up_cor_length + down_cor_length) / (len(up_ind5) + len(down_ind5))
-    total = len(up_ind5) + len(down_ind5)
-    correct = int(total * Acc)
+        Acc = correct_num / total_num
 
-    return Acc, total, correct
+    return Acc, total_num, correct_num
 
 def countDrawdoan(max_drawdowns, max_drawdown, drawdown, money):
     drawdown = drawdown + money
@@ -238,371 +79,268 @@ def countDrawdoan(max_drawdowns, max_drawdown, drawdown, money):
 
     return max_drawdown, drawdown
 
-if __name__ == "__main__":
-    ##dataX, dataY, price_data, time_data, close, time, end_price_data, close_abs_data = get_redis_data()
-    result = {}
-    time_list = {}
-    not_except_result = {}
+def get_model(single_flg):
 
-    for sym in symbols:
+    model = None
+    if single_flg:
+        # 複数GPUを使用しない CPU用
+        if LOAD_TYPE == 1:
+            model = tf.keras.models.load_model(MODEL_DIR_LOAD)
+        elif LOAD_TYPE == 2:
+            #重さのみロード
+            model = create_model()
+            model.load_weights(LOAD_CHK_PATH)
+        else:
+            #新規作成
+            print("ERROR LOAD_TYPE = 0 !!!")
+            exit(1)
+    else:
+        # モデル作成
+        with tf.distribute.MirroredStrategy().scope():
+            # 複数GPU使用する
+            # https://qiita.com/ytkj/items/18b2910c3363b938cde4
+            if LOAD_TYPE == 1:
+                model = tf.keras.models.load_model(MODEL_DIR_LOAD)
+            elif LOAD_TYPE == 2:
+                # 重さのみロード
+                model = create_model()
+                model.load_weights(LOAD_CHK_PATH)
+            else:
+                # 新規作成
+                print("ERRO LOAD_TYPE = 0 !!!")
+                exit(1)
 
-        dataY_tmp, dataZ_tmp, price_data_tmp, time_data_tmp, close_tmp, time_tmp, end_price_data_tmp,not_except_index_cnts = get_redis_data(sym)
-        res_tmp = do_predict(sym)
+    model.summary()
 
-        """
-        myLogger("Length")
-        myLogger(len(res_tmp))
-        myLogger(len(dataY_tmp))
-        myLogger(len(price_data_tmp))
-        myLogger(len(time_data_tmp))
-        myLogger(len(close_tmp))
-        myLogger(len(time_tmp))
-        myLogger(len(end_price_data_tmp))
-        myLogger(len(spread_data_tmp))
-        """
+    return model
 
-        for j in range(len(dataY_tmp)):
-            tmp_result = {}
-            tmp_result["res_tmp"] = res_tmp[j]
-            tmp_result["dataY_tmp"] = dataY_tmp[j]
-            tmp_result["dataZ_tmp"] = dataZ_tmp[j]
-            tmp_result["price_data_tmp"] = price_data_tmp[j]
-            tmp_result["time_data_tmp"] = time_data_tmp[j]
-            tmp_result["end_price_data_tmp"] = end_price_data_tmp[j]
-            #tmp_result["spread_data_tmp"] = spread_data_tmp[j]
-            result[time_data_tmp[j]] = tmp_result
+def do_predict():
+    model = get_model(False)
 
-            if dataZ_tmp[j] == True:
-                tmp_not_except_result = {}
-                tmp_not_except_result["res_tmp"] = res_tmp[j]
-                tmp_not_except_result["dataY_tmp"] = dataY_tmp[j]
-                tmp_not_except_result["dataZ_tmp"] = dataZ_tmp[j]
-                not_except_result[time_data_tmp[j]] = tmp_not_except_result
+    dataSequence2 = DataSequence2(0, start, end, True)
 
-        for k in range(len(close_tmp)):
-            tmp_time = {}
-            tmp_time["close_tmp"] = close_tmp[k]
-            tmp_time["time_tmp"] = time_tmp[k]
-            time_list[time_tmp[k]] = tmp_time
+    # 正解ラベル(ndarray)
+    correct_list = dataSequence2.get_correct_list()
 
-    res, dataY, dataZ, price_data, time_data, close, time, end_price_data, spread_data = [],[],[],[],[],[],[],[],[]
-    tmp_x, tmp_y, tmp_z = [],[],[]
+    # レートの変化幅(FX用)
+    change_list = np.array(dataSequence2.get_change_list())
 
-    for k, v in sorted(result.items()):
-        res.append(v["res_tmp"])
-        dataY.append(v["dataY_tmp"])
-        dataZ.append(v["dataZ_tmp"])
-        price_data.append(v["price_data_tmp"])
-        time_data.append(v["time_data_tmp"])
-        end_price_data.append(v["end_price_data_tmp"])
-        #spread_data.append(v["spread_data_tmp"])
+    # 全close値のリスト
+    close_list = dataSequence2.get_close_list()
 
-    for k, v in sorted(not_except_result.items()):
-        tmp_x.append(v["res_tmp"])
-        tmp_y.append(v["dataY_tmp"])
-        tmp_z.append(v["dataZ_tmp"])
+    # 全score値のリスト
+    score_list = dataSequence2.get_score_list()
 
+    # 予想対象のscore値のリスト
+    target_score_list = np.array(dataSequence2.get_train_score_list())
 
-    for k, v in sorted(time_list.items()):
-        close.append(v["close_tmp"])
-        time.append(v["time_tmp"])
+    # ndarrayで返って来る
+    predict_list = model.predict_generator(dataSequence2,
+                                  steps=None,
+                                  max_queue_size=PROCESS_COUNT * 1,
+                                  use_multiprocessing=False,
+                                  verbose=0)
+    """
+    print("correct", len(correct_list), correct_list[:10])
+    print("change", len(change_list), change_list[:10])
+    print("close", len(close_list), close_list[:10])
+    print("score", len(score_list), score_list[:10])
+    print("target_score", len(target_score_list), target_score_list[:10])
+    print("predict", len(predict_list), predict_list[:10])
+    """
 
-    res = np.array(res)
-    dataY = np.array(dataY)
-    dataZ = np.array(dataZ)
-    price_data = np.array(price_data)
-    time_data = np.array(time_data)
-    close = np.array(close)
-    time = np.array(time)
-    end_price_data = np.array(end_price_data)
-    #spread_data = np.array(spread_data)
-    border_list=[0.55,0.555,0.56,]
-    border_list_show=[0.55,0.555,0.56,]
+    print(datetime.now().strftime("%Y/%m/%d %H:%M:%S") + "Predict finished!! Now Calculating")
+
+    border_list=[0.55,0.552,0.554,0.556,0.558,0.56,] #正解率と獲得金額のみ表示
+    border_list_show=[0.55,0.554,0.558,] #グラフも表示
+
+    #予想結果表示用テキストを保持
     result_txt = []
 
-    tmp_x = np.array(tmp_x)
-    tmp_y = np.array(tmp_y)
-    tmp_z = np.array(tmp_z)
-    #tmp_x = res[not_except_index_cnts, :]
-    #tmp_y =  dataY[not_except_index_cnts, :]
-    #tmp_z = dataZ[not_except_index_cnts]
-
     for b in border_list:
-        spread_trade = {}
-        spread_win = {}
         max_drawdown = 0
         drawdown = 0
         max_drawdowns = []
 
         border = b
-        Acc5 = getAcc(tmp_x,border,tmp_y)
+        Acc, total_num, correct_num = getAcc(predict_list, border, correct_list)
 
-        result_txt.append("Accuracy over " + str(border) + ":" + str(Acc5[0]))
-        result_txt.append("Total:" + str(Acc5[1]) + " Correct:" + str(Acc5[2]))
+        #全体の予想結果を表示 ※UP or DOWNのみ SAMEの予想結果は無視
+        result_txt.append("Accuracy over " + str(border) + ":" + str(Acc))
+        result_txt.append("Total:" + str(total_num) + " Correct:" + str(correct_num))
 
-        if fx == False:
-            win_money = (payout * Acc5[2]) - ((Acc5[1] - Acc5[2]) * payoff)
-            result_txt.append("Money:" + str(win_money))
+        if FX == False:
+            win_money = (PAYOUT * correct_num) - ((total_num - correct_num) * PAYOFF)
+            result_txt.append("Earned Money:" + str(win_money))
+
         if border not in border_list_show:
             continue
 
-        perTimeRes = {}
-        for j in range(24):
-            perTimeRes[str(j)] = {"count": 0, "win_count": 0}
 
-        ind5 = np.where(res >=border)[0]
-        x5 = res[ind5,:]
-        y5= dataY[ind5,:]
-        z5= dataZ[ind5]
-        p5 = price_data[ind5]
-        t5 = time_data[ind5]
-        ep5 = end_price_data[ind5]
-        #sp5 = spread_data[ind5]
-        #ca5 = close_abs_data[ind5]
+        ind = np.where(predict_list >=border)[0]
+        #up,same,downどれかが閾値以上の予想パーセントであるもののみ抽出
+        x5 = predict_list[ind,:]
+        y5 = correct_list[ind,:]
+        s5 = target_score_list[ind]
+        c5 = change_list[ind]
 
-        #myLogger(t5[0:10])
-        up = tmp_x[:, 0]
-        down = tmp_x[:, 2]
+        """
+        up = predict_list[:, 0]
+        down = predict_list[:, 2]
 
-        up_ind5 = np.where(up >= border)[0]
-        down_ind5 = np.where(down >= border)[0]
+        up_ind = np.where(up >= border)[0]
+        down_ind = np.where(down >= border)[0]
 
-        x5_up = tmp_x[up_ind5,:]
-        y5_up= tmp_y[up_ind5,:]
+        x_up = predict_list[up_ind,:]
+        y_up= predict_list[up_ind,:]
 
-        up_total_length = len(x5_up)
-        up_eq = np.equal(x5_up.argmax(axis=1), y5_up.argmax(axis=1))
-        #Acc5_up = np.mean(np.equal(x5_up.argmax(axis=1), y5_up.argmax(axis=1)))
+        up_total_length = len(x_up)
+        up_eq = np.equal(x_up.argmax(axis=1), y_up.argmax(axis=1))
+
+        #upと予想して正解だった数
         up_cor_length = int(len(np.where(up_eq == True)[0]))
+        #upと予想して不正解だった数
         up_wrong_length = int(up_total_length - up_cor_length)
-        #myLogger("up_cor_length:"+ str(up_cor_length))
-        #myLogger("up_wrong_length:" + str(up_wrong_length))
 
-        x5_down = tmp_x[down_ind5,:]
-        y5_down= tmp_y[down_ind5,:]
-        down_total_length = len(x5_down)
-        #Acc5_down = np.mean(np.equal(x5_down.argmax(axis=1), y5_down.argmax(axis=1)))
-        down_eq = np.equal(x5_down.argmax(axis=1), y5_down.argmax(axis=1))
+        x_down = predict_list[down_ind,:]
+        y_down= predict_list[down_ind,:]
+
+        down_total_length = len(x_down)
+        down_eq = np.equal(x_down.argmax(axis=1), y_down.argmax(axis=1))
+
+        #downと予想して正解だった数
         down_cor_length = int(len(np.where(down_eq == True)[0]))
+        #downと予想して不正解だった数
         down_wrong_length = int(down_total_length - down_cor_length)
-        #myLogger("down_cor_length:"+ str(down_cor_length))
-        #myLogger("down_wrong_length:" + str(down_wrong_length))
+        """
 
-        cor_list_up_x, cor_list_up_y = np.array([ "yyyy-mm-dd 00:00:00" for i in range(up_cor_length) ]), np.ones(up_cor_length, dtype=np.float64)
-        wrong_list_up_x, wrong_list_up_y = np.array([ "yyyy-mm-dd 00:00:00" for i in range(up_wrong_length) ]), np.ones(up_wrong_length, dtype=np.float64)
-        cor_list_down_x, cor_list_down_y = np.array([ "yyyy-mm-dd 00:00:00" for i in range(down_cor_length) ]), np.ones(down_cor_length, dtype=np.float64)
-        wrong_list_down_x, wrong_list_down_y = np.array([ "yyyy-mm-dd 00:00:00" for i in range(down_wrong_length) ]), np.ones(down_wrong_length, dtype=np.float64)
-
-        #cor_list_abs, wrong_list_abs = np.ones(up_cor_length + down_cor_length, dtype=np.float64), np.ones(up_wrong_length + down_wrong_length, dtype=np.float64)
-
-        money_x, money_y = np.array([ "00:00:00" for i in range(len(time)) ]), np.ones(len(time), dtype=np.float64)
+        money_y = []
         money_tmp = {}
 
-        money = 1000000
-        myLogger(datetime.now().strftime("%Y/%m/%d %H:%M:%S") + " Now Calculating")
+        money = 1000000 #始めの所持金
 
-        cnt_up_cor = 0
-        cnt_up_wrong = 0
-        cnt_down_cor = 0
-        cnt_down_wrong = 0
-        loop_cnt = 0
-        cnt_cor_abs = 0
-        cnt_wrong_abs = 0
+        cnt_up_cor = 0 #upと予想して正解した数
+        cnt_up_wrong = 0 #upと予想して不正解だった数
 
-        time_rate_list = {}
-        for i in range(0, 24):
-            time_rate_list[i] = (TimeRate())
+        cnt_down_cor = 0 #downと予想して正解した数
+        cnt_down_wrong = 0 #downと予想して不正解だった数
 
-        ind_tmp = -1
-        for x,y,z,p,t,ep in zip(x5,y5,z5,p5,t5,ep5):
-            hourT = str(datetime.strptime(t, '%Y-%m-%d %H:%M:%S').hour)
-            ind_tmp = ind_tmp +1
-            not_except_flg = z
-
+        for x, y, s, c in zip(x5, y5, s5, c5, ):
             max = x.argmax()
-            """
-            time_rate_list[int(t[11:13])].all_cnt += 1
-            if max == y.argmax():
-                time_rate_list[int(t[11:13])].correct_cnt += 1
-            """
-            trade_flg = False
+
+            #予想した時間
+            predict_t = datetime.fromtimestamp(s)
             win_flg = False
+
             if max == 0:
-                if not_except_flg:
-                    trade_flg = True
-                perTimeRes[hourT]["count"] += 1
-
                 # Up predict
-                if fx:
-                    buy = p * fx_position
-                    sell = ep * fx_position
-                    # DB上の値は実際の1／100なので100倍している
-                    profit = float(Decimal(str(sell)) - Decimal(str(buy)) - Decimal(str((0.00001 * spread * fx_position)))) * 100
-                    if not_except_flg:
-                        money = money + profit
-                        max_drawdown, drawdown = countDrawdoan(max_drawdowns, max_drawdown, drawdown, profit)
+
+                if FX:
+                    profit = (c - (0.001 * SPREAD)) * FX_POSITION
+                    money = money + profit
+                    max_drawdown, drawdown = countDrawdoan(max_drawdowns, max_drawdown, drawdown, profit)
+
                 if max == y.argmax():
-                    if fx == False:
-                        if not_except_flg:
-                            money = money + payout
-                            max_drawdown, drawdown = countDrawdoan(max_drawdowns, max_drawdown, drawdown, payout)
-                    if not_except_flg:
-                        cor_list_up_x[cnt_up_cor] = t
-                        cor_list_up_y[cnt_up_cor] = p
-                        cnt_up_cor = cnt_up_cor + 1
-                        win_flg = True
-                    perTimeRes[hourT]["win_count"] += 1
-                    #cor_list_abs[cnt_cor_abs] = ca
-                    #cnt_cor_abs += 1
+                    if FX == False:
+                        money = money + PAYOUT
+                        max_drawdown, drawdown = countDrawdoan(max_drawdowns, max_drawdown, drawdown, PAYOUT)
+
+                    cnt_up_cor = cnt_up_cor + 1
+                    win_flg = True
+
                 else :
-                    if fx == False:
-                        if not_except_flg:
-                            money = money - payoff
-                            max_drawdown, drawdown = countDrawdoan(max_drawdowns, max_drawdown, drawdown, payoff * -1)
-                    if not_except_flg:
-                        wrong_list_up_x[cnt_up_wrong] = t
-                        wrong_list_up_y[cnt_up_wrong] = p
-                        cnt_up_wrong = cnt_up_wrong + 1
+                    if FX == False:
+                        money = money - PAYOFF
+                        max_drawdown, drawdown = countDrawdoan(max_drawdowns, max_drawdown, drawdown, PAYOFF * -1)
 
-                    #wrong_list_abs[cnt_wrong_abs] = ca
-                    #cnt_wrong_abs += 1
+                    cnt_up_wrong = cnt_up_wrong + 1
+
             elif max == 2:
-                if not_except_flg:
-                    trade_flg = True
-                perTimeRes[hourT]["count"] += 1
-                if fx:
-                    sell = p * fx_position
-                    buy =  ep * fx_position
-                    profit = float(Decimal(str(sell)) - Decimal(str(buy)) - Decimal(str((0.00001 * spread * fx_position)))) * 100
-                    if not_except_flg:
-                        money = money + profit
-                        max_drawdown, drawdown = countDrawdoan(max_drawdowns, max_drawdown, drawdown, profit)
+                #Down predict
+                if FX:
+                    #cはaft-befなのでdown予想の場合の利益として-1を掛ける
+                    profit = ((c * -1)  - (0.001 * SPREAD)) * FX_POSITION
+                    money = money + profit
+                    max_drawdown, drawdown = countDrawdoan(max_drawdowns, max_drawdown, drawdown, profit)
                 if max == y.argmax():
-                    if fx == False:
-                        if not_except_flg:
-                            money = money + payout
-                            max_drawdown, drawdown = countDrawdoan(max_drawdowns, max_drawdown, drawdown, payout)
-                    if not_except_flg:
-                        cor_list_down_x[cnt_down_cor] = t
-                        cor_list_down_y[cnt_down_cor] = p
-                        cnt_down_cor = cnt_down_cor + 1
-                        win_flg = True
-                    perTimeRes[hourT]["win_count"] += 1
+                    if FX == False:
+                        money = money + PAYOUT
+                        max_drawdown, drawdown = countDrawdoan(max_drawdowns, max_drawdown, drawdown, PAYOUT)
 
-                    #cor_list_abs[cnt_cor_abs] = ca
-                    #cnt_cor_abs += 1
+                    cnt_down_cor = cnt_down_cor + 1
+                    win_flg = True
+
                 else:
-                    if fx == False:
-                        if not_except_flg:
-                            money = money - payoff
-                            max_drawdown, drawdown = countDrawdoan(max_drawdowns, max_drawdown, drawdown, payoff * -1)
-                    if not_except_flg:
-                        wrong_list_down_x[cnt_down_wrong] = t
-                        wrong_list_down_y[cnt_down_wrong] = p
-                        cnt_down_wrong = cnt_down_wrong + 1
+                    if FX == False:
+                        money = money - PAYOFF
+                        max_drawdown, drawdown = countDrawdoan(max_drawdowns, max_drawdown, drawdown, PAYOFF * -1)
 
-                    #wrong_list_abs[cnt_wrong_abs] = ca
-                    #cnt_wrong_abs += 1
-            flg = False
-            """
-            if trade_flg:
-                for k, v in spread_list.items():
-                    if sp > v[0] and sp <= v[1]:
-                        spread_trade[k] = spread_trade.get(k, 0) + 1
-                        if win_flg:
-                            spread_win[k] = spread_win.get(k, 0) + 1
-                        flg = True
-                        break
-                if flg == False:
-                    if sp < 0:
-                        spread_trade["spread0"] = spread_trade.get("spread0", 0) + 1
-                        if win_flg:
-                            spread_win["spread0"] = spread_win.get("spread0", 0) + 1
-                    else:
-                        spread_trade["spread16Over"] = spread_trade.get("spread16Over", 0) + 1
-                        if win_flg:
-                            spread_win["spread16Over"] = spread_win.get("spread16Over", 0) + 1
-            """
-            money_tmp[t] = money
-            loop_cnt = loop_cnt + 1
+                    cnt_down_wrong = cnt_down_wrong + 1
+
+            money_tmp[s] = money
+
+            #秒ごとのbetした回数と勝ち数を保持
+            if per_sec_flg:
+                if max == 0 or max == 2:
+                    per_sec_dict[predict_t.second][0] += 1
+                    if win_flg:
+                        per_sec_dict[predict_t.second][1] += 1
 
         prev_money = 1000000
-        #T = time[0]
-        #myLogger("T:" + T[11:])
-        for i, ti in enumerate(time):
-            if ti in money_tmp.keys():
-                prev_money = money_tmp[ti]
 
-            money_x[i] = ti[11:13]
-            money_y[i] = prev_money
+        for i, score in enumerate(score_list):
+            if score in money_tmp.keys():
+                prev_money = money_tmp[score]
 
-        #myLogger("close_abs_cor mean:" + str(np.mean(cor_list_abs)) + " std:" + str(np.std(cor_list_abs)))
-        #myLogger("close_abs_wrong_mean:" + str(np.mean(wrong_list_abs)) + " std:" + str(np.std(wrong_list_abs)))
+            money_y.append(prev_money)
 
-        myLogger(datetime.now().strftime("%Y/%m/%d %H:%M:%S") + " Now Plotting")
-        """
-        #plt.subplot(1, 2, 1)
-        plt.plot(cor_list_abs, "ro")
-        #plt.subplot(1, 2, 2)
-        plt.plot(wrong_list_abs, "bo")
-        plt.show()
-        """
-        """
-        for k, v in time_rate_list.items():
-            if v.all_cnt != 0:
-                myLogger("time:",k," all_cnt:",v.all_cnt," correct_cnt:",v.correct_cnt," correct_rate:",v.correct_cnt/v.all_cnt)
-        """
+        print(datetime.now().strftime("%Y/%m/%d %H:%M:%S"), " Now Plotting")
+
 
         fig = plt.figure()
         #価格の遷移
         ax1 = fig.add_subplot(111)
-        # どこでベットしたかわかるようにするには以下をコメントインし、ax1.plot(close, 'g')をコメントアウトする
-        #ax1.plot(time,close)
-        ax1.plot(close, 'g')
-        """
-        ax1.plot(cor_list_up_x, cor_list_up_y, 'b^')
-        ax1.plot(wrong_list_up_x, wrong_list_up_y, 'r^')
-        ax1.plot(cor_list_down_x, cor_list_down_y, 'bv')
-        ax1.plot(wrong_list_down_x, wrong_list_down_y, 'rv')
-        """
+
+        ax1.plot(close_list, 'g')
+
         ax2 = ax1.twinx()
         ax2.plot(money_y)
 
-        #index = np.arange(0,len(money_x),3600// int(s))
-        #plt.xticks(index,money_x[index])
-        if fx == True:
-            plt.title('border:' + str(border) + " position:" + str(fx_position) + " spread:" + str(spread) + " money:" + str(money))
+        if FX == True:
+            plt.title('border:' + str(border) + " position:" + str(FX_POSITION) + " spread:" + str(SPREAD) + " money:" + str(money))
         else:
-            plt.title('border:' + str(border) + " payout:" + str(payout) + " spread:" + str(spread) + " money:" + str(money))
+            plt.title('border:' + str(border) + " payout:" + str(FX_POSITION) + " spread:" + str(SPREAD) + " money:" + str(money))
         plt.show()
 
-        for k in range(24):
-            cnt = perTimeRes[str(k)]["count"]
-            winCnt = perTimeRes[str(k)]["win_count"]
-            if cnt != 0:
-                myLogger(str(k) + ": win rate " + str(winCnt / cnt) + " ,count " + str(cnt) + " ,win count " + str(winCnt))
-        """
-        for k, v in sorted(spread_list.items()):
-            if spread_trade.get(k, 0) != 0:
-                myLogger(k, " cnt:", spread_trade.get(k, 0), " win rate:", spread_win.get(k,0)/spread_trade.get(k))
-            else:
-                myLogger(k, " cnt:", spread_trade.get(k, 0))
-        """
+        if per_sec_flg:
+            # 理論上の秒ごとの勝率
+            for i in per_sec_dict.keys():
+                if per_sec_dict[i][0] != 0:
+                    win_rate = per_sec_dict[i][1] / per_sec_dict[i][0]
+                    print("理論上の秒毎の確率:" + str(i) + " トレード数:" + str(per_sec_dict[i][0]) + " 勝率:" + str(win_rate))
+
         max_drawdowns.sort()
         myLogger(max_drawdowns[0:10])
 
         drawdown_cnt = {}
         for i in max_drawdowns:
-            for k, v in drawdown_list.items():
+            for k, v in DRAWDOWN_LIST.items():
                 if i < v[0] and i >= v[1]:
                     drawdown_cnt[k] = drawdown_cnt.get(k,0) + 1
                     break
-        for k, v in sorted(drawdown_list.items()):
+        for k, v in sorted(DRAWDOWN_LIST.items()):
             myLogger(k, drawdown_cnt.get(k,0))
 
+        """
         max_drawdowns_np = np.array(max_drawdowns)
         df = pd.DataFrame(pd.Series(max_drawdowns_np.ravel()).describe()).transpose()
         myLogger(df)
+        """
 
     for i in result_txt:
         myLogger(i)
+
+
+if __name__ == "__main__":
+
+    do_predict()

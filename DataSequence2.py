@@ -1,8 +1,6 @@
-from keras.utils import Sequence
+from tensorflow.keras.utils import Sequence
 from pathlib import Path
-import pandas
 import numpy as np
-from keras.utils import np_utils
 from datetime import datetime
 import time
 from decimal import Decimal
@@ -10,7 +8,7 @@ from scipy.ndimage.interpolation import shift
 import redis
 import json
 import random
-from readConf import *
+from readConf2 import *
 import scipy.stats
 import gc
 import math
@@ -19,288 +17,327 @@ logging.config.fileConfig( os.path.join(current_dir,"config","logging.conf"))
 logger = logging.getLogger("app")
 myLogger = printLog(logger)
 
-class DataSequence(Sequence):
+class DataSequence2(Sequence):
 
     def __init__(self, rec_num, startDt, endDt, test_flg):
         #コンストラクタ
+        self.db1 = [] #divide値を保持
+        self.db1_score = {} #scoreとdb1リストのインデックスを保持
+        self.db1_score_list = [] #データ確認用
+        self.db2 = []
+        self.db2_score = {}
+        self.db2_score_list = [] #単純にscoreのリスト
+        self.db3 = []
+        self.db3_score = {}
+        self.db3_score_list = []
         self.rec_num = rec_num
-        # 学習対象のみのself.closeのインデックスと正解ラベルが入った子リストを保持する。このインデックスを元にself.closeから指定期間分のデータと正解ラベルを取得する
-        self.train_list = []
+        # 学習対象のみの各DBのインデックスと,DB内のインデックスおよび正解ラベルが入った子リストを保持する
+        # このインデックスを元に配列から指定期間分のデータと正解ラベルを取得する
+        # ex:
+        # [
+        # [ [0,1,0], [100], [101], [45] ], これで学習データ1つ分 左から正解ラベル, DB1内のインデックス, DB2内のインデックス, DB3内のインデックス
+        # [ [1,0,0], [10], [6], [200] ],
+        # ]
         self.start_score = int(time.mktime(startDt.timetuple()))
         self.end_score = int(time.mktime(endDt.timetuple()))
         self.test_flg = test_flg
-        self.features = {}
-        self.features_tmp = {}
         self.time_list = []
+        #testの場合のみ正解ラベルをリターンする
+        self.correct_list = [] #test用 正解ラベルを保持
+        self.train_list = []
+        self.train_dict = {} #test用
+        self.change_list = [] #test用 FXでの報酬計算に使用 レートの変化幅を保持
+        self.score_list = [] #test用
+        self.score_dict = {} #test用
+        self.close_list = [] #test用
+        self.train_score_list = [] #test用 予想対象のスコアを保持
 
-        for i in range(len(in_features)):
-            self.features["feature_" + str(i)] = []
-            self.features_tmp["feature_tmp_" + str(i)] = []
+        r = redis.Redis(host='localhost', port=6379, db=DB_NO, decode_responses=True)
 
-        self.longers = {}
-        self.longers_index = {}
+        # 長い足のDBから先に全件取得
+        db2_index = 0
+        for i, db in enumerate(DB2_LIST):
+            result = r.zrange(db, 0, -1, withscores=True)
+            print(db ,len(result))
 
-        for i in range(len(in_longers)):
-            self.longers["longer_" + str(i)] = []
-            # 一分足のスコアがkey、リストのインデックスがvalueの辞書を中身にもつ
-            #後で短い足から直前の長い足のデータをひっぱってくるために使用
-            self.longers_index["longer_" + str(i)] = {}
+            for j, line in enumerate(result):
+                body = line[0]
+                score = int(line[1])
+                tmps = json.loads(body)
+
+                self.db2.append(tmps.get("d"))
+                self.db2_score[score] = db2_index
+                self.db2_score_list.append(score)
+
+                db2_index += 1
+
+            del result
+
+        db3_index = 0
+        for i, db in enumerate(DB3_LIST):
+            result = r.zrange(db, 0, -1, withscores=True)
+            print(db ,len(result))
+
+            for j, line in enumerate(result):
+                body = line[0]
+                score = int(line[1])
+                tmps = json.loads(body)
+
+                self.db3.append(tmps.get("d"))
+                self.db3_score[score] = db3_index
+                self.db3_score_list.append(score)
+
+                db3_index += 1
+
+            del result
+
         up = 0
         same = 0
 
-        r = redis.Redis(host='localhost', port=6379, db=db_no, decode_responses=True)
+        db1_index = 0
+        for i, db in enumerate(DB1_LIST):
 
-        # 長い足を使用する場合は先にデータ取得する
-        for i, longer in enumerate(in_longers):
-            # take all data
-            result_longer = r.zrange(in_longers_db[longer], 0, -1, withscores=True)
-            print("result_longer length:" ,len(result_longer))
-
-            for j, line_longer in enumerate(result_longer):
-                body_longer = line_longer[0]
-                score_longer = int(line_longer[1])
-                tmps_longer = json.loads(body_longer)
-
-                self.longers["longer_" + str(i)].append(tmps_longer.get("close_divide"))
-                self.longers_index["longer_" + str(i)][score_longer] = j
-
-            print(self.longers["longer_" + str(i)][:10])
-
-            #試しにスコア表示
-            """
-            tmp_i = 0
-            for score, list_ind in self.longers_index["longer_" + str(i)].items():
-                print("score:", score, " index:", list_ind)
-                tmp_i = tmp_i + 1
-                if tmp_i > 10:
-                    break
-            """
-
-        for sbl in symbols:
-            list_start_idx = len(self.features["feature_0"])
-            print("symbol:", sbl)
-            print("list_start_idx:",list_start_idx)
+            list_idx = db1_index
 
             if test_flg == False:
                 #lstm_generator用
-                result = r.zrevrangebyscore(sbl, self.start_score, self.end_score, start=0, num=self.rec_num + 1)
+                result = r.zrevrangebyscore(db, self.start_score, self.end_score, start=0, num=self.rec_num + 1, withscores=True)
                 result.reverse()
-                print("start_score:" + str(self.start_score))
+
             else:
                 #testLstm用
-                result = r.zrangebyscore(sbl, self.start_score, self.end_score)
-            print("DataSequence:get redis data");
-            close_tmp, time_tmp = [], []
-            feature_1,feature_2,feature_3,feature_4= [],[],[],[]
-            longers_score_tmp = {}
-            for i in range(len(in_longers)):
-                longers_score_tmp["longer_score_" + str(i)] = []
+                result = r.zrangebyscore(db, self.start_score, self.end_score, withscores=True)
+
+            close_tmp, devide_tmp, score_tmp = [], [], []
 
             for line in result:
-                tmps = json.loads(line)
-                #closeはask,bidの仲値がDBに入っている
-                close_tmp.append(tmps.get("close"))
-                #close_tmp.append(tmps.get("open"))
-                time_tmp.append(tmps.get("time"))
+                body = line[0]
+                score = int(line[1])
+                tmps = json.loads(body)
 
-                for i,feature in enumerate(in_features):
-                    self.features_tmp["feature_tmp_" + str(i)].append(tmps.get(feature))
+                close_tmp.append(tmps.get("c"))
+                self.db1.append(tmps.get("d"))
 
-                for i, longer in enumerate(in_longers):
-                    longers_score_tmp["longer_score_" + str(i)].append(tmps.get(longer))
+                score_tmp.append(score)
 
-            # メモリ解放
+                self.db1_score[score] = db1_index
+                self.db1_score_list.append(score)
+
+                #test用にscoreをキーにレートを保持
+                if test_flg:
+                    self.score_dict[score] = tmps.get("c")
+
+                db1_index += 1
+
             del result
-            gc.collect()
-            #self.time_list.extend(time_tmp)
 
-            for i, feature in enumerate(in_features):
-                self.features["feature_" + str(i)].extend(self.features_tmp["feature_tmp_" + str(i)])
+            print(datetime.fromtimestamp(min(self.db1_score)))
+            print(datetime.fromtimestamp(max(self.db1_score)))
 
-            print(close_tmp[-10:])
-            print(time_tmp[0:10])
-            print(time_tmp[-10:])
-            for i, longer in enumerate(in_longers):
-                print(longers_score_tmp["longer_score_" + str(i)][0:10])
+            list_idx = list_idx -1
 
-            tmp_data_length = len(close_tmp) - close_shift - (maxlen * close_shift) - (pred_term * close_shift)
-            list_start_idx = list_start_idx -1
-            for i in range(tmp_data_length):
-                #学習対象closeのインデックスを保持
-                list_start_idx = list_start_idx + 1
-                #print(list_start_idx)
-                #ハイローオーストラリアの取引時間外を学習対象からはずす(lstm_generator用のみ)
-                if test_flg == False:
-                    if except_highlow:
-                        if datetime.strptime(time_tmp[i + (maxlen * close_shift) - 1], '%Y-%m-%d %H:%M:%S').hour in except_list:
-                            continue;
-                # maxlen前の時刻までつながっていないものは除外。たとえば日付またぎなど
-                tmp_time_bef = datetime.strptime(time_tmp[i], '%Y-%m-%d %H:%M:%S')
-                tmp_time_aft = datetime.strptime(time_tmp[i + (maxlen * close_shift) - 1], '%Y-%m-%d %H:%M:%S')
-                delta = tmp_time_aft - tmp_time_bef
+            for i in range(len(close_tmp)):
+                list_idx += 1
 
-                if delta.total_seconds() >= (maxlen * int(s)):
-                    # print(tmp_time_aft)
-                    continue;
+                #inputデータが足りない場合スキップ
+                if i < INPUT_LEN[0]:
+                    continue
 
-                # sよりmergの方が大きい数字の場合、
-                # 検証時(testLstm.py)は秒をmergで割った余りが0のデータだけを使って結果をみる、なぜならDB内データの間隔の方がトレードタイミングより短いため
-                if test_flg == True:
-                    if int(s) < int(merg):
-                        sec = time_tmp[i][-2:]
-                        if Decimal(str(sec)) % Decimal(merg) != 0:
+                try:
+                    start_score = score_tmp[i - INPUT_LEN[0]]
+                    end_score = score_tmp[i + PRED_TERM -1]
+                    if end_score != start_score + ((INPUT_LEN[0] + PRED_TERM - 1)  * DB1_TERM):
+                        #時刻がつながっていないものは除外 たとえば日付またぎなど
+                        continue
+
+                except IndexError:
+                    #start_score end_scoreのデータなしなのでスキップ
+                    continue
+
+                db2_index_tmp = -1
+
+                #DB2を使う場合
+                if len(INPUT_LEN) > 1:
+                    db2_index_tmp = self.db2_score[score_tmp[i]] #scoreからインデックスを取得
+                    try:
+                        start_score = self.db2_score_list[db2_index_tmp - INPUT_LEN[1]]
+                        end_score = self.db2_score_list[db2_index_tmp]
+                        if end_score != start_score + (INPUT_LEN[1] * DB2_TERM):
+                            #時刻がつながっていないものは除外 たとえば日付またぎなど
                             continue
-                # 学習時、使用するデータセットを絞る
-                if test_flg == False:
-                    if len(data_set) != 0:
-                        use_flg = False
-                        for tmp_sec in data_set:
-                            sec = time_tmp[i][-2:]
-                            if close_shift > 1:
-                                if Decimal(str(sec)) % Decimal(s) == tmp_sec:
-                                    use_flg = True
-                                    break
-                            else:
-                                if Decimal(str(sec)) % Decimal(merg) == tmp_sec:
-                                    use_flg = True
-                                    break
-                        if use_flg == False:
-                            #データ使用しない場合
+
+                    except IndexError:
+                        #start_scoreのデータなしなのでスキップ
+                        continue
+
+                db3_index_tmp = -1
+
+                # DB3を使う場合
+                if len(INPUT_LEN) > 2:
+                    db3_index_tmp = self.db3_score[score_tmp[i]] #scoreからインデックスを取得
+                    try:
+                        start_score = self.db3_score_list[db3_index_tmp - INPUT_LEN[2]]
+                        end_score = self.db3_score_list[db3_index_tmp]
+                        if end_score != start_score + (INPUT_LEN[2] * DB3_TERM):
+                            # 時刻がつながっていないものは除外 たとえば日付またぎなど
                             continue
+
+                    except IndexError:
+                        # start_scoreのデータなしなのでスキップ
+                        continue
+
+                #ハイローオーストラリアの取引時間外を学習対象からはずす
+                if len(EXCEPT_LIST) != 0:
+                    if datetime.fromtimestamp(score_tmp[i]).hour in EXCEPT_LIST:
+                        continue;
 
                 # 正解をいれていく
-                bef = close_tmp[i + (maxlen * close_shift) -1]
-                aft = close_tmp[i + (maxlen * close_shift) + (pred_term * close_shift) -1]
+                bef = close_tmp[i -1]
+                aft = close_tmp[i -1 + PRED_TERM]
+
+                change = aft - bef #変化幅を保持 test用
+
+                divide = aft / bef
+                if aft == bef:
+                    divide = 1
+
+                divide = 10000 * (divide - 1)
+
+                if test_flg == False:
+                    if DIVIDE_MAX < abs(divide):
+                        #変化率が大きすぎる場合 外れ値とみなして除外
+                        continue
 
                 tmp_label = None
-                if float(Decimal(str(aft)) - Decimal(str(bef))) >= float(Decimal(str("0.00001")) * Decimal(str(spread))):
+                if float(Decimal(str(aft)) - Decimal(str(bef))) >= float(Decimal(str("0.001")) * Decimal(str(SPREAD))):
                     # 上がった場合
                     tmp_label = np.array([1, 0, 0])
                     up = up + 1
-                elif float(Decimal(str(bef)) - Decimal(str(aft))) >= float(Decimal(str("0.00001")) * Decimal(str(spread))):
+                elif float(Decimal(str(bef)) - Decimal(str(aft))) >= float(Decimal(str("0.001")) * Decimal(str(SPREAD))):
                     tmp_label = np.array([0, 0, 1])
                 else:
                     tmp_label = np.array([0, 1, 0])
                     same = same + 1
 
-                #直前の長い足のスコアを入れていく
-                longer_scores = []
-                for j, longer in enumerate(in_longers):
-                    longer_scores.append(longers_score_tmp["longer_score_" + str(j)][i + (maxlen * close_shift) -1])
+                if test_flg:
+                    # 一旦scoreをキーに辞書に登録 後でスコア順にならべてtrain_listにいれる
+                    # 複数のDBを使用した場合に結果を時系列順にならべて確認するため
+                    if len(self.train_dict) == 0:
+                        print("first score", score_tmp[i])
+                    self.train_dict[score_tmp[i]] = [tmp_label, list_idx, db2_index_tmp, db3_index_tmp, change]
+                else:
+                    self.train_list.append([tmp_label, list_idx, db2_index_tmp, db3_index_tmp])
 
-                self.train_list.append([list_start_idx, tmp_label, longer_scores])
+        # メモリ節約のためredis停止
+        #r.shutdown()
+
+        print("You Can Stop Redis!!!")
+
+        if test_flg:
+            #一番短い足のDBを複数インプットする場合用に
+            #score順にならべかえてtrain_listと正解ラベルおよびレート変化幅(aft-bef)をそれぞれリスト化する
+            ######## 動作未確認 複数インプットをする場合に確認すること！！！！！ ######
+            for data in sorted(self.train_dict.items()):
+                self.train_list.append(data[1][:4])
+                self.correct_list.append(data[1][0])
+                self.change_list.append(data[1][4])
+                self.train_score_list.append(data[0])
+
+            #一番短い足のDBを複数インプットする場合用に
+            #scoreのリストcloseのリストを作成 結果確認のグラフ描写で使うため
+            for data in sorted(self.score_dict.items()):
+                self.score_list.append(data[0])
+                self.close_list.append(data[1])
+
+            del self.train_dict, self.score_dict
 
         # メモリ解放
         del close_tmp
-        del time_tmp
-        del longers_score_tmp
-        del self.features_tmp
-        gc.collect()
+        del score_tmp
 
-        for i, feature in enumerate(self.features):
-            self.features["feature_" + str(i)] = np.array(self.features["feature_" + str(i)])
+        #numpy化してsliceを早くする
+        self.db1_np = np.array(self.db1)
+        self.db2_np = np.array(self.db2)
+        self.db3_np = np.array(self.db3)
 
-        self.cut_num = len(self.train_list) % batch_size
-        #print("tmp train list length: " , str(len(self.train_list)))
-        #print("cut_num: " , str(cut_num))
-
-        #self.train_list = self.train_list[cut_num:]
-        print("train list length: " , str(len(self.train_list)))
+        del self.db1, self.db2, self.db3
 
         self.data_length = len(self.train_list)
+        self.cut_num = (self.data_length) % BATCH_SIZE
+
+        print("data length:" , self.data_length)
+
         if self.cut_num !=0:
             # エポック毎の学習ステップ数
             # バッチサイズが1ステップで学習するデータ数
             # self.cut_num(総学習データ÷バッチサイズ)で余りがあるなら余りがある分ステップ数が1多い
-            self.steps_per_epoch = int(self.data_length / batch_size) +1
+            self.steps_per_epoch = int(self.data_length / BATCH_SIZE) +1
         else:
-            self.steps_per_epoch = int(self.data_length / batch_size)
+            self.steps_per_epoch = int(self.data_length / BATCH_SIZE)
 
         print("steps_per_epoch: ", self.steps_per_epoch)
         myLogger("UP: ",up/self.data_length)
-        myLogger("SAME: ", same / self.data_length)
-        myLogger("DOWN: ", (self.data_length - up - same) / self.data_length)
-
-        print(self.train_list[0:10])
-        #print(self.close[self.train_list[0][0]:(self.train_list[0][0] + self.maxlen)])
-        #print(self.train_list[0][1])
+        myLogger("SAME: ", same /self.data_length)
+        myLogger("DOWN: ", (self.data_length - up - same) / (self.data_length))
 
         #シャッフルしとく
         if test_flg == False:
             random.shuffle(self.train_list)
 
-        def tmp_create_features(x, start_idx, maxlen,feature_num):
-            # 取得すべきself.featuresのインデックス番号を決定
-            target_idx = self.train_list[start_idx + x][0]
+        """
+        for i in self.train_list[0:3]:
+            db1_index_tmp = i[1]
+
+            print("db1_score:", self.db1_score_list[db1_index_tmp])
+            print("db1_divide:", self.db1_np[db1_index_tmp - 5 : db1_index_tmp])
+
+        if len(INPUT_LEN) == 3:
+            for i in self.train_list[0:3]:
+                db1_index_tmp = i[1]
+                db2_index_tmp = i[2]
+                db3_index_tmp = i[3]
+
+                print("db1_score:", self.db1_score_list[db1_index_tmp])
+                print("db1_divide:", self.db1_np[db1_index_tmp - 5 : db1_index_tmp])
+                print("db2_score:", self.db2_score_list[db2_index_tmp])
+                print("db2_divide:", self.db2_np[db2_index_tmp - 5 : db2_index_tmp])
+                print("db3_score:", self.db3_score_list[db3_index_tmp])
+                print("db3_divide:", self.db3_np[db3_index_tmp - 5 : db3_index_tmp])
+        """
+        def tmp_create_db1(x, start_idx):
+            # 取得すべきdb1のインデックス番号を決定
+            target_idx = self.train_list[start_idx + x][1]
+
             """
-            if (start_idx + x) == 0:
-                tmp_dt = self.time_list[target_idx]
-                print("time", self.time_list[target_idx])
-                tdatetime = datetime.strptime(tmp_dt, '%Y-%m-%d %H:%M:%S')
-                print("score", int(time.mktime(tdatetime.timetuple())))
-
-                tmp_dt = self.time_list[target_idx + (maxlen * close_shift) -1]
-                print("time", self.time_list[target_idx + (maxlen * close_shift) -1])
-                tdatetime = datetime.strptime(tmp_dt, '%Y-%m-%d %H:%M:%S')
-                print("score", int(time.mktime(tdatetime.timetuple())))
+            if test_flg:
+                if start_idx == 0 and x < 10:
+                    print("score:", self.db1_score_list[self.train_list[start_idx + x][1]])
             """
-            return self.features["feature_" + str(feature_num)][target_idx:(target_idx + (maxlen * close_shift)):close_shift]
 
-        self.create_features = np.vectorize(tmp_create_features, otypes=[np.ndarray])
+            return self.db1_np[target_idx - INPUT_LEN[0] :target_idx]
 
-        def tmp_create_longers(x, start_idx, maxlen,longer_num):
-            # 取得すべき長い足のインデックス番号を探すためのスコアを取得
-            target_score = self.train_list[start_idx + x][2][longer_num]
-            """
-            if (start_idx + x) == 0:
-                print("target_score:",target_score)
-            """
-            # 長い足のデータのインデックスを取得
-            target_index =  self.longers_index["longer_" + str(longer_num)][target_score]
-            return   self.longers["longer_" + str(longer_num)][(target_index + 1 - (maxlen * close_shift)):(target_index + 1):close_shift]
+        self.create_db1 = np.vectorize(tmp_create_db1, otypes=[np.ndarray])
 
-        self.create_longers = np.vectorize(tmp_create_longers, otypes=[np.ndarray])
+        def tmp_create_db2(x, start_idx):
+            # 取得すべきdb2のインデックス番号を決定
+            target_idx = self.train_list[start_idx + x][2]
 
-        def tmp_create_close(x, start_idx, maxlen):
-            # 取得すべきself.closeのインデックス番号を決定
-            target_idx = self.train_list[start_idx + x][0]
+            return self.db2_np[target_idx - INPUT_LEN[1]:target_idx]
 
-            return self.close[target_idx:(target_idx + (maxlen * close_shift)):close_shift]
+        self.create_db2 = np.vectorize(tmp_create_db2, otypes=[np.ndarray])
 
-        self.create_close = np.vectorize(tmp_create_close, otypes=[np.ndarray])
+        def tmp_create_db3(x, start_idx):
+            # 取得すべきdb3のインデックス番号を決定
+            target_idx = self.train_list[start_idx + x][3]
 
-        def tmp_create_spread(x, start_idx, maxlen):
-            target_idx = self.train_list[start_idx + x][0]
+            return self.db3_np[target_idx - INPUT_LEN[2]:target_idx]
 
-            return self.spreads[target_idx:(target_idx + + (maxlen * close_shift)):close_shift]
-
-        self.create_spread = np.vectorize(tmp_create_spread, otypes=[np.ndarray])
-
-        def tmp_create_high(x, start_idx, maxlen):
-            target_idx = self.train_list[start_idx + x][0]
-
-            return self.high[target_idx:(target_idx + (maxlen * close_shift)):close_shift]
-
-        self.create_high = np.vectorize(tmp_create_high, otypes=[np.ndarray])
-
-        def tmp_create_low(x, start_idx, maxlen):
-            target_idx = self.train_list[start_idx + x][0]
-
-            return self.low[target_idx:(target_idx + (maxlen * close_shift)):close_shift]
-
-        self.create_low = np.vectorize(tmp_create_low, otypes=[np.ndarray])
+        self.create_db3 = np.vectorize(tmp_create_db3, otypes=[np.ndarray])
 
         def tmp_create_label(x, start_idx):
-            return self.train_list[start_idx + x][1]
+            return self.train_list[start_idx + x][0]
 
-        # frompyfuncで新たな関数を作成
         self.create_label = np.vectorize(tmp_create_label, otypes=[np.ndarray])
-
-        def f(x):
-            return x * np.array([1, 1, 1, 1, 1], dtype=np.float32)
-
-        self.g = np.vectorize(f, otypes=[np.ndarray])
-
 
 
     # 学習データを返すメソッド
@@ -310,7 +347,7 @@ class DataSequence(Sequence):
         #start = time.time()
         # データの取得実装
         #print("idx:", idx)
-        tmp_np = np.arange(batch_size)
+        tmp_np = np.arange(BATCH_SIZE)
         # self.cut_num(総学習データ÷バッチサイズ)で余りがあり、且つ最後のステップの場合、
         # リターンする配列のサイズはバッチサイズでなく、余りの数となる
         if idx == (self.steps_per_epoch -1) and self.cut_num != 0:
@@ -322,61 +359,78 @@ class DataSequence(Sequence):
         #print(np.array(new_tmp).shape)
 
         # start_idxからバッチサイズ分取得開始インデックスをずらす
-        start_idx = idx * batch_size
+        start_idx = idx * BATCH_SIZE
 
         label_data_tmp= self.create_label(tmp_np, start_idx)
-        #print(label_data_tmp[:2])
-        #print(type(label_data_tmp))
-        new_label_data = label_data_tmp.tolist()
-        label_data = np.array(new_label_data)
-        #print(label_data[:2])
+        label_data_tmp = label_data_tmp.tolist()
+        retY = np.array(label_data_tmp)
 
-        if functional_flg:
-            retX_sec = np.zeros((len(tmp_np), maxlen, 1))
-            for i, feature in enumerate(self.features):
-                # 取得開始インデックスから返却すべきデータ数(tmp_npの長さ)を取得する
-                feature_tmp_arr = self.create_features(tmp_np, start_idx, maxlen, i)
-                new_feature_data = feature_tmp_arr.tolist()
-                feature_data = np.array(new_feature_data)
-                retX_sec[:, :, 0] = feature_data[:]
+        if len(INPUT_LEN) == 1:
+            retX = np.zeros((len(tmp_np), INPUT_LEN[0], 1))
 
-            retX_min = np.zeros((len(tmp_np), maxlen_min, 1))
-            for i, longer in enumerate(self.longers):
-                longer_tmp_arr = self.create_longers(tmp_np, start_idx, maxlen_min, i)
-                new_longer_data = longer_tmp_arr.tolist()
-                longer_data = np.array(new_longer_data)
-                retX_min[:, :, 0] = longer_data[:]
+            # 取得開始インデックスから返却すべきデータ数(tmp_npの長さ)を取得する
+            tmp_arr = self.create_db1(tmp_np, start_idx)
+            tmp_arr = tmp_arr.tolist()
+            tmp_arr = np.array(tmp_arr)
+            retX[:, :, 0] = tmp_arr[:]
 
-            retX = [retX_sec, retX_min]
+            retX = [retX, ]
 
-        else:
-            retX = np.zeros((len(tmp_np), maxlen, x_length))
-            x_cnt = 0;
-            for i,feature in enumerate(self.features):
-                # 取得開始インデックスから返却すべきデータ数(tmp_npの長さ)を取得する
-                feature_tmp_arr = self.create_features(tmp_np, start_idx, maxlen,i)
-                new_feature_data = feature_tmp_arr.tolist()
-                feature_data = np.array(new_feature_data)
-                retX[:, :, x_cnt] = feature_data[:]
-                x_cnt = x_cnt + 1
+        elif len(INPUT_LEN) == 2:
+            retX1 = np.zeros((len(tmp_np), INPUT_LEN[0], 1))
 
-            for i, longer in enumerate(self.longers):
-                longer_tmp_arr = self.create_longers(tmp_np, start_idx, maxlen, i)
-                new_longer_data = longer_tmp_arr.tolist()
-                longer_data = np.array(new_longer_data)
-                retX[:, :, x_cnt] = longer_data[:]
-                x_cnt = x_cnt + 1
+            # 取得開始インデックスから返却すべきデータ数(tmp_npの長さ)を取得する
+            tmp_arr1 = self.create_db1(tmp_np, start_idx)
+            tmp_arr1 = tmp_arr1.tolist()
+            tmp_arr1 = np.array(tmp_arr1)
+            retX1[:, :, 0] = tmp_arr1[:]
 
-        retY = np.array(label_data)
+            retX2 = np.zeros((len(tmp_np), INPUT_LEN[1], 1))
+
+            # 取得開始インデックスから返却すべきデータ数(tmp_npの長さ)を取得する
+            tmp_arr2 = self.create_db2(tmp_np, start_idx)
+            tmp_arr2 = tmp_arr2.tolist()
+            tmp_arr2 = np.array(tmp_arr2)
+            retX2[:, :, 0] = tmp_arr2[:]
+
+            retX = [retX1, retX2 ]
+
+        elif len(INPUT_LEN) == 3:
+            retX1 = np.zeros((len(tmp_np), INPUT_LEN[0], 1))
+
+            # 取得開始インデックスから返却すべきデータ数(tmp_npの長さ)を取得する
+            tmp_arr1 = self.create_db1(tmp_np, start_idx)
+            tmp_arr1 = tmp_arr1.tolist()
+            tmp_arr1 = np.array(tmp_arr1)
+            retX1[:, :, 0] = tmp_arr1[:]
+
+            retX2 = np.zeros((len(tmp_np), INPUT_LEN[1], 1))
+
+            # 取得開始インデックスから返却すべきデータ数(tmp_npの長さ)を取得する
+            tmp_arr2 = self.create_db2(tmp_np, start_idx)
+            tmp_arr2 = tmp_arr2.tolist()
+            tmp_arr2 = np.array(tmp_arr2)
+            retX2[:, :, 0] = tmp_arr2[:]
+
+            retX3 = np.zeros((len(tmp_np), INPUT_LEN[2], 1))
+
+            # 取得開始インデックスから返却すべきデータ数(tmp_npの長さ)を取得する
+            tmp_arr3 = self.create_db3(tmp_np, start_idx)
+            tmp_arr3 = tmp_arr3.tolist()
+            tmp_arr3 = np.array(tmp_arr3)
+            retX3[:, :, 0] = tmp_arr3[:]
+
+            retX = [retX1, retX2, retX3]
+
         """
         if idx == 0:
-            print("X SHAPE:", retX.shape)
-            print("Y SHAPE:", retY.shape)
-            print("X :", retX[0:1])
-            print("Y :", retY[0:1])
+            if len(INPUT_LEN) == 3:
+                for i in range(3):
+                    print("X1 :", retX[0][i][-5:])
+                    print("X2 :", retX[1][i][-5:])
+                    print("X3 :", retX[2][i][-5:])
+                    print("Y :", retY[i])
         """
-        #elapsed_time = time.time() - start
-        #print("elapsed_time:{0}".format(elapsed_time) + "[sec]")
         #テストの場合はテストデータのみ返す
         if self.test_flg:
             return retX
@@ -390,8 +444,22 @@ class DataSequence(Sequence):
     def on_epoch_end(self):
         # epoch終了時の処理 リストをランダムに並べ替える
         random.shuffle(self.train_list)
-        #print(self.train_list[0:10])
 
     def get_data_length(self):
-
         return self.data_length
+
+    def get_correct_list(self):
+        retY = np.array(self.correct_list)
+        return retY
+
+    def get_change_list(self):
+        return self.change_list
+
+    def get_score_list(self):
+        return self.score_list
+
+    def get_close_list(self):
+        return self.close_list
+
+    def get_train_score_list(self):
+        return self.train_score_list

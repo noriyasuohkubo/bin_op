@@ -26,11 +26,16 @@ end_day_dt = datetime.strptime(end_day, '%Y/%m/%d %H:%M:%S')
 start_stp = int(time.mktime(start_day_dt.timetuple()))
 end_stp = int(time.mktime(end_day_dt.timetuple())) -1 #含めないので1秒マイナス
 
-
+math_log = False
 
 db_no = 3
 #取得元DB
-db_name = "GBPJPY"
+db_name = "GBPJPY_2_0"
+
+#予測間隔
+pred_term = 15
+
+bet_term = 2
 
 redis_db = redis.Redis(host='localhost', port=6379, db=db_no, decode_responses=True)
 
@@ -42,17 +47,46 @@ def get():
     print("result_data length:" + str(len(result_data)))
 
     d_list =[]
+    c_list = []
+    s_list = []
+
     for line in result_data:
         body = line[0]
+        score = int(line[1])
         tmps = json.loads(body)
 
-        d_list.append(float(tmps.get("d")))
+        c_list.append(float(tmps.get("c")))
+        s_list.append(score)
+
+    for i, c in enumerate(c_list):
+        if i < pred_term:
+            continue
+
+        try:
+            start_score = s_list[i - pred_term]
+            end_score = s_list[i]
+            if end_score != start_score + (pred_term * bet_term):
+                # 時刻がつながっていないものは除外 たとえば日付またぎなど
+                continue
+
+        except IndexError:
+            # start_scoreのデータなしなのでスキップ
+            continue
+
+        divide = float(c_list[i]) / float(c_list[i - pred_term])
+        if c_list[i] == c_list[i - pred_term]:
+            divide = 1
+        if math_log:
+            divide = 10000 * math.log(divide)
+        else:
+            divide = 10000 * (divide - 1)
+
+        d_list.append(divide)
 
     d_np =np.array(d_list)
-
-
     d_np = np.sort(d_np)
 
+    print("data length:", len(d_np))
     print("avg:", np.average(d_np))
     print("std:", np.std(d_np))
     print("mid:", d_np[int(len(d_np)/2) -1]) #中央値
