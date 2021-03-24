@@ -22,7 +22,7 @@ symbol = "GBPJPY_BASE"
 db_no = 3
 host = "127.0.0.1"
 
-start = datetime.datetime(2009, 1, 1)
+start = datetime.datetime(2007, 1, 1)
 start_stp = int(time.mktime(start.timetuple()))
 
 end = datetime.datetime(2020, 1, 2)

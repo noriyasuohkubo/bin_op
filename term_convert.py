@@ -9,6 +9,7 @@ import os
 import gc
 import numpy as np
 import math
+import sys
 
 
 """
@@ -19,8 +20,8 @@ make_close_dbで作成した2秒間隔のレコードを任意の間隔に拡張
 
 """
 
-start_day = "2009/01/01 00:00:00" #この時間含む(以上)
-end_day = "2020/01/01 00:00:00"  # この時間含めない(未満) 終了日は月から金としなけらばならない
+start_day = "2007/01/01 00:00:00" #この時間含む(以上)
+end_day = "2021/01/01 00:00:00"  # この時間含めない(未満) 終了日は月から金としなけらばならない
 
 start_day_dt = datetime.strptime(start_day, '%Y/%m/%d %H:%M:%S')
 end_day_dt = datetime.strptime(end_day, '%Y/%m/%d %H:%M:%S')
@@ -35,32 +36,33 @@ if start_day_dt >= end_day_dt:
     exit()
 
 #変更する間隔(sec)
-term = 10
+
+terms = [10,30,90,300]
 
 #DBのもとのレコード間隔
 org_term = 2
 
-#1分間隔でつくるとして15なら00:01:15 00:02:15 00:03:15と位相をずらす
-shift_list = []
-for i in range(int(Decimal(str(term)) / Decimal(str(org_term)))):
-    shift_list.append(term - ((i + 1) * org_term) )
+#closeの値をdbレコードに含める
+close_flg = False
 
-print(shift_list)
+spread_flg = False
 
 #変化率のlogをとる
 math_log = False
 
-db_no = 3
+db_no_old = 3
+db_no_new = 3
 #取得元DB
-db_name_old = "GBPJPY"
+db_name_old = "GBPJPY_2_0"
 
-redis_db = redis.Redis(host='localhost', port=6379, db=db_no, decode_responses=True)
+redis_db_old = redis.Redis(host='localhost', port=6379, db=db_no_old, decode_responses=True)
+redis_db_new = redis.Redis(host='localhost', port=6379, db=db_no_new, decode_responses=True)
 
 def convert():
     # 処理時間計測
     t1 = time.time()
 
-    result_data = redis_db.zrangebyscore(db_name_old, start_stp, end_stp, withscores=True)
+    result_data = redis_db_old.zrangebyscore(db_name_old, start_stp, end_stp, withscores=True)
     print("result_data length:" + str(len(result_data)))
 
     #key:score val:dict(cs,cm,etc)
@@ -79,7 +81,8 @@ def convert():
 
         val_dict = {}
         val_dict["c"] = tmps.get("c")
-        #val_dict["d"] = tmps.get("d")
+        if spread_flg == True:
+            val_dict["s"] = tmps.get("s")
         #val_dict["t"] = tmps.get("t")
         #val_dict["t_val"] = t_val
 
@@ -87,57 +90,72 @@ def convert():
 
     del result_data
 
-    for shift in shift_list:
-        cnt = 0
-        db_name_new = "GBPJPY_" + str(term) + "_" + str(shift)
-        print("shift:", shift)
-        for score, val in lists.items():
+    for term in terms:
+        # 1分間隔でつくるとして15なら00:01:15 00:02:15 00:03:15と位相をずらす
+        shift_list = []
+        for i in range(int(Decimal(str(term)) / Decimal(str(org_term)))):
+            shift_list.append(term - ((i + 1) * org_term))
 
-            cnt += 1
-            #t_val = val["t_val"]
+        print(shift_list)
 
-            #間隔に当たっていたら2秒まえのレコードを取得
-            # cdを計算するため
-            #if t_val % term == shift:
-            if score % term == shift:
-                #2秒前のレコード
-                if (score -org_term) in lists:
-                    prev = lists[score -org_term]
-                else:
-                    continue
-                    #なければとばす
+        for shift in shift_list:
+            cnt = 0
+            db_name_new = "GBPJPY_" + str(term) + "_" + str(shift)
+            print("shift:", shift)
+            for score, val in lists.items():
 
-                if (score + term -org_term) in lists:
-                    after = lists[score + term -org_term]
+                cnt += 1
+                #t_val = val["t_val"]
 
-                    divide = float(after["c"]) / float(prev["c"])
-                    if after["c"] == prev["c"]:
-                        divide = 1
-                    if math_log:
-                        divide = 10000 * math.log(divide)
+                #間隔に当たっていたら2秒まえのレコードを取得
+                # cdを計算するため
+                #if t_val % term == shift:
+                if score % term == shift:
+                    #2秒前のレコード
+                    if (score -org_term) in lists:
+                        prev = lists[score -org_term]
                     else:
-                        divide = 10000 * (divide - 1)
+                        continue
+                        #なければとばす
 
-                    child = {#'c': after["c"],
-                             'd': divide,
-                             's': score,
-                             }
-                    """
-                    tmp_val = redis_db.zrangebyscore(db_name_new, score, score)
-                    if len(tmp_val) == 0:
-                        # レコードなければ登録
-                    """
-                    ret = redis_db.zadd(db_name_new, json.dumps(child), score)
-                    # もし登録できなかった場合
-                    if ret == 0:
-                        print(child)
-                        print(score)
-                else:
-                    continue
+                    if (score + term -org_term) in lists:
+                        after = lists[score + term -org_term]
 
-            if cnt % 10000000 == 0:
-                dt_now = datetime.now()
-                print(dt_now, " ", cnt)
+                        divide = float(after["c"]) / float(prev["c"])
+                        if after["c"] == prev["c"]:
+                            divide = 1
+                        if math_log:
+                            divide = 10000 * math.log(divide)
+                        else:
+                            divide = 10000 * (divide - 1)
+
+                        child = {#'c': after["c"],
+                                 'd': divide,
+                                 'sc': score,
+                                 }
+
+                        if spread_flg == True:
+                            child["s"] = val["s"]
+
+                        if close_flg == True:
+                            child["c"] = after["c"]
+
+                        """
+                        tmp_val = redis_db.zrangebyscore(db_name_new, score, score)
+                        if len(tmp_val) == 0:
+                            # レコードなければ登録
+                        """
+                        ret = redis_db_new.zadd(db_name_new, json.dumps(child), score)
+                        # もし登録できなかった場合
+                        if ret == 0:
+                            print(child)
+                            print(score)
+                    else:
+                        continue
+
+                if cnt % 10000000 == 0:
+                    dt_now = datetime.now()
+                    print(dt_now, " ", cnt)
 
     t2 = time.time()
     elapsed_time = t2-t1
@@ -146,5 +164,5 @@ def convert():
 if __name__ == "__main__":
     convert()
 
-    redis_db.save()
+    redis_db_new.save()
 

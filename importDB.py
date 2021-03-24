@@ -1,64 +1,43 @@
-import numpy as np
-import keras.models
-import tensorflow as tf
-import configparser
-import os
-import redis
-import traceback
-import json
-from scipy.ndimage.interpolation import shift
-import logging.config
-from keras.models import load_model
-from keras import backend as K
-from matplotlib import pyplot as plt
-import seaborn as sns
+
 from datetime import datetime
-from datetime import timedelta
-from keras.utils.training_utils import multi_gpu_model
+
 import time
 from indices import index
 from decimal import Decimal
+import redis
 
-# symbol = "AUDUSD"
-symbol = "GBPJPY"
-#symbol = "EURUSD"
-
-import_db_nos = {"ubuntu": 8, "ubuntu1": 11, "ubuntu2": 12, }
 
 export_db_no = 8
+import_db_no = 8
 
-export_host = "ubuntu1"
+export_db_name = "GBPJPY_30_SPR_TRADE"
+import_db_name = "GBPJPY_30_SPR_TRADE"
+
+export_host = "amd6"
 import_host = "127.0.0.1"
 
-start = datetime(2018, 5, 1)
+start = datetime(2020, 12, 19, 23)
 start_stp = int(time.mktime(start.timetuple()))
 
-end = datetime(2018, 5, 27)
+end = datetime(2021, 1, 15, 22)
 end_stp = int(time.mktime(end.timetuple()))
 
 
 def import_data():
-    import_db_no = import_db_nos.get(export_host)
     export_r = redis.Redis(host=export_host, port=6379, db=export_db_no)
     import_r = redis.Redis(host=import_host, port=6379, db=import_db_no)
-    result_data = export_r.zrangebyscore(symbol, start_stp, end_stp, withscores=True)
+    result_data = export_r.zrangebyscore(export_db_name, start_stp, end_stp, withscores=True)
+    print(len(result_data))
 
+    cnt = 0
     for line in result_data:
         body = line[0]
         score = line[1]
-        imp = import_r.zrangebyscore(symbol, score, score)
+        imp = import_r.zrangebyscore(import_db_name, score, score)
         if len(imp) == 0:
-            import_r.zadd(symbol, body, score)
+            cnt += 1
+            import_r.zadd(import_db_name, body, score)
 
-    result_trade_data = export_r.zrangebyscore(symbol + "_TRADE", start_stp, end_stp, withscores=True)
-
-    for line in result_trade_data:
-        body = line[0]
-        score = line[1]
-        imp = import_r.zrangebyscore(symbol + "_TRADE", score, score)
-        if len(imp) == 0:
-            import_r.zadd(symbol + "_TRADE", body, score)
-
-
+    print(cnt)
 if __name__ == "__main__":
     import_data()

@@ -26,7 +26,7 @@ symbol_org = "GBPJPY_BASE"
 close_shift = 1
 
 #新規に作成するDB名
-symbol = "GBPJPY"
+symbol = "GBPJPY_2_0"
 
 #直前の1分足のスコアをデータに含めるか
 #例えば12：03：44なら12:02
@@ -35,10 +35,10 @@ include_min = False
 db_no = 3
 host = "127.0.0.1"
 
-start = datetime.datetime(2009, 1, 1)
+start = datetime.datetime(2007, 1, 1)
 start_stp = int(time.mktime(start.timetuple()))
 
-end = datetime.datetime(2020, 1, 1)
+end = datetime.datetime(2020, 1, 2)
 end_stp = int(time.mktime(end.timetuple()))
 
 redis_db = redis.Redis(host=host, port=6379, db=db_no, decode_responses=True)
@@ -73,7 +73,7 @@ del result_data, close_tmp
 math_log = False
 
 #変化率を作成
-for i, v in enumerate(close_tmp):
+for i, v in enumerate(close_np):
     #変化元(close_shift前のデータ)がないのでとばす
     if i < close_shift:
         continue
@@ -87,7 +87,7 @@ for i, v in enumerate(close_tmp):
     else:
         divide = 10000 * (divide - 1)
 
-    child = {'c': close_tmp[i],
+    child = {'c': close_np[i],
             'd': divide,
             't': time_tmp[i],
              }

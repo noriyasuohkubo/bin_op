@@ -17,7 +17,6 @@ import gc
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import accuracy_score,precision_score,recall_score,f1_score
 import pickle
-import m2cgen as m2c
 
 readConf.logging.config.fileConfig( os.path.join(readConf.current_dir,"config","logging.conf"))
 logger = readConf.logging.getLogger("app")
@@ -202,9 +201,9 @@ def do_train():
     evaluation_results = {} #評価結果格納用
     clf = LGBMClassifier(
         boosting_type='gbdt',
-        objective='multiclass',
+        objective='multiclass', #分類
         min_data_in_leaf=1,
-        num_leaves=31, #木にある分岐の個数
+        num_leaves=31, #木に存在する分岐の個数
         device="gpu",
         n_estimators=estimators,#木の数
         min_child_weight=1,

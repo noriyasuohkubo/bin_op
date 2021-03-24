@@ -33,7 +33,7 @@ db_no = 3
 db_name = "GBPJPY_2_0"
 
 #予測間隔
-pred_term = 15
+pred_term = 1
 
 bet_term = 2
 
