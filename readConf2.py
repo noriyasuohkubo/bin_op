@@ -21,6 +21,7 @@ BET_TERM = 2
 PRED_TERM = 15
 
 DB_NO = 3
+DB_EVAL_NO = 0
 
 # inputするデータの秒間隔
 DB1_TERM = 2
@@ -98,27 +99,33 @@ for i, v in enumerate(DB_TERMS):
 
 
 INPUT_LEN = [
-    304,
-    300,
-    240,
-    80,
-    24,
+    10,
+    10,
+    6,
+    4,
+    2,
     ]
 
 INPUT_LEN_STR = ""
 
+TOTAL_INPUT_LEN = 0
+
 for i, v in enumerate(INPUT_LEN):
+    TOTAL_INPUT_LEN += v
+
     if i !=0:
         INPUT_LEN_STR = INPUT_LEN_STR + "-" + str(v)
     else:
         INPUT_LEN_STR = str(v)
 
+
+TOTAL_INPUT_LEN = 2
 LSTM_UNIT =[
-    30,
-    30,
-    24,
-    8,
+    6,
+    6,
     4,
+    3,
+    2,
 
 
 ]
@@ -180,8 +187,8 @@ elif len(INPUT_LEN) == 5:
         exit(1)
 
 DENSE_UNIT =[
-    9,
-    6,
+    #6,
+    #3,
 
 ]
 DENSE_UNIT_STR = ""
@@ -195,14 +202,16 @@ for i, v in enumerate(DENSE_UNIT):
 DROP = 0.0
 #ls正則化
 
-L_K_RATE = 0
-L_R_RATE = 0
+L_K_RATE = 0 #lstm kernel_regularizer
+L_R_RATE = 0 #lstm recurrent_regularizer
 #L_K_RATE = 0.00001
 #L_R_RATE = 0.00001
+L_D_RATE = 0 #dense kernel_regularizer
+
 
 #DIVIDE_MAX = 5 #0.1%を外れ値として除外
 #DIVIDE_MAX = 4.1 #0なら制限なし Categoryの場合、外れ値はあまり関係ないので0として全て学習対象とする 100なら1%変化したということ
-DIVIDE_MAX = 10
+DIVIDE_MAX = 0
 DIVIDE_MIN = 0
 
 FX = False
@@ -218,29 +227,29 @@ SPREAD = 2
 #正解を出すときに使うSPREADに実データのスプレッドを使用する
 REAL_SPREAD_FLG = False
 
+#eval時に本番データを使う場合
+REAL_SPREAD_EVAL_FLG = True
+
 #実トレードした結果を加味する場合
 TRADE_FLG = False
 
 #スプレッドによりテスト除外する場合
 EXCEPT_SPREAD_FLG = False
 #テスト除外しないスプレッド
-TARGET_SPREAD_LIST = [1,2,3,4,5,6,]
+TARGET_SPREAD_LIST = [1,2,3,4,5,6,7,8,9,10]
 
 #テスト除外するトレード秒を指定
 #EXCEPT_SEC_LIST = [24,26,28,30]
 EXCEPT_SEC_LIST = []
-EXCEPT_SEC_BORDER = 0.01
-
 
 #テスト除外するトレード分を指定
-#EXCEPT_MIN_LIST = [24,26,28,30]
 EXCEPT_MIN_LIST = []
-EXCEPT_MIN_SEC_OVER = 0
 
 DB_TRADE_NO = 8
 DB_TRADE_NAME = "GBPJPY_30_SPR_TRADE"
 
-PAYOUT = 1300
+PAYOUT = 1300 #30秒
+#PAYOUT = 1200 #60秒
 PAYOFF = 1000
 
 #学習対象外時間(ハイローがやっていない時間)
@@ -286,22 +295,25 @@ DIVIDE_AFT_LIST = {"divide0.5":(-1,0.5),"divide1":(0.5,1.0),"divide2":(1,2),"div
 
 # 学習方法 Bidirectionalならby
 # LSTMならlstm
-METHOD = "LSTM"
+#METHOD = "LSTM"
 #METHOD = "BY"
 #METHOD = "NORMAL"
+METHOD = "BTR" #BoostedTreesRegressor
 
 #直前のレートから最古のレートまでのdivideを特徴量とする
 DIVIDE_ALL_FLG = False
 
 GPU_COUNT = 2
-BATCH_SIZE = 1024 * 1 * GPU_COUNT
-#process_count = multiprocessing.cpu_count() - 1
-PROCESS_COUNT = 1
+BATCH_SIZE = 256 * 1 * GPU_COUNT
+BATCH_SIZE = 15
 
-LEARNING_TYPE = "CATEGORY" #多クラス分類
+#process_count = multiprocessing.cpu_count() - 1
+PROCESS_COUNT = 2
+
+#LEARNING_TYPE = "CATEGORY" #多クラス分類
 #LEARNING_TYPE = "CATEGORY_BIN" #2クラス分類
 #LEARNING_TYPE = "REGRESSION_SIGMA" #回帰 sigma
-#LEARNING_TYPE = "REGRESSION" #回帰
+LEARNING_TYPE = "REGRESSION" #回帰
 
 OUTPUT = 0
 if LEARNING_TYPE == "CATEGORY":
@@ -316,27 +328,40 @@ elif LEARNING_TYPE == "REGRESSION":
 #LOSS_TYPE = "MSE"
 LOSS_TYPE = "HUBER"
 
-SUFFIX = ""
+SUFFIX = "_CO7"
 #SUFFIX = ""
+
+BATCH_NORMAL = False
+BATCH_NORMAL_STR = ""
+if BATCH_NORMAL:
+    BATCH_NORMAL_STR = "_BNORMAL"
 
 if DIVIDE_ALL_FLG:
     SUFFIX += "DIVIDE_ALL"
 
 FILE_PREFIX = ""
 
-if METHOD == "LSTM" or METHOD == "BY":
+L_D_STR = ""
+if L_D_RATE != 0:
+    L_D_STR = "_L-R" + str(L_D_RATE)
+
+DIVIDE_MIN_STR = ""
+if DIVIDE_MIN != 0:
+    DIVIDE_MIN_STR = "_DIVIDEMIN" + str(DIVIDE_MIN)
+
+if METHOD == "LSTM" or METHOD == "BY" or METHOD == "BTR":
     FILE_PREFIX = SYMBOL + "_" + LEARNING_TYPE + "_" + METHOD + "_BET" + str(BET_TERM) + "_TERM" + str(PRED_TERM * DB1_TERM) + \
                   "_INPUT" + DB_TERM_STR + \
                   "_INPUT_LEN" + INPUT_LEN_STR + \
                   "_L-UNIT" + LSTM_UNIT_STR + "_D-UNIT" + DENSE_UNIT_STR + "_DROP" + str(DROP) + \
-                  "_L-K" + str(L_K_RATE) + "_L-R" + str(L_R_RATE) + "_DIVIDEMAX" + str(DIVIDE_MAX) + \
+                  "_L-K" + str(L_K_RATE) + "_L-R" + str(L_R_RATE) + L_D_STR + BATCH_NORMAL_STR + "_DIVIDEMAX" + str(DIVIDE_MAX) + DIVIDE_MIN_STR + \
                   "_SPREAD" + str(SPREAD) + SUFFIX
 elif METHOD == "NORMAL":
     FILE_PREFIX = SYMBOL + "_" + LEARNING_TYPE + "_" + METHOD + "_BET" + str(BET_TERM) + "_TERM" + str(PRED_TERM * DB1_TERM) + \
                   "_INPUT" + DB_TERM_STR + \
                   "_INPUT_LEN" + INPUT_LEN_STR + \
                   "_D-UNIT" + DENSE_UNIT_STR + "_DROP" + str(DROP) + \
-                  "_L-K" + str(L_K_RATE) + "_L-R" + str(L_R_RATE) + "_DIVIDEMAX" + str(DIVIDE_MAX) + \
+                  "_L-K" + str(L_K_RATE) + "_L-R" + str(L_R_RATE) + L_D_STR + BATCH_NORMAL_STR + "_DIVIDEMAX" + str(DIVIDE_MAX) + DIVIDE_MIN_STR + \
                   "_SPREAD" + str(SPREAD) + SUFFIX
 
 
@@ -345,16 +370,23 @@ if LEARNING_TYPE == "REGRESSION":
 
 EPOCH = 40
 
-LEARNING_RATE = 0.0001
+LEARNING_RATE = 0.001
+
+#CPUのみ、またはGPU1つしか搭載していない場合
+SINGLE_FLG = False
+#SINGLE_FLG = Trueのとき、学習するデバイスを指定
+#0 :RTX3090
+#1 :RTX3080
+DEVICE = "1"
 
 # 0:新規作成
 # 1:modelからロード
 # 2:chekpointからロード
-LOAD_TYPE = 1
-LOADING_NUM = "90*10"
+LOAD_TYPE = 0
+LOADING_NUM = "90*40"
 
 # 1つのモデルに対して実行した学習回数
-LEARNING_NUM = "90*80"
+LEARNING_NUM = "90*40"
 
 # 保存用のディレクトリ
 MODEL_DIR = "/app/model/bin_op/" + FILE_PREFIX + "-" + LEARNING_NUM
