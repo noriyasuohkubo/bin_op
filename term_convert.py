@@ -20,8 +20,8 @@ make_close_dbで作成した2秒間隔のレコードを任意の間隔に拡張
 
 """
 
-start_day = "2007/01/01 00:00:00" #この時間含む(以上)
-end_day = "2021/01/01 00:00:00"  # この時間含めない(未満) 終了日は月から金としなけらばならない
+start_day = "2020/01/01 00:00:00" #この時間含む(以上)
+end_day = "2021/09/30 22:00:00"  # この時間含めない(未満) 終了日は月から金としなけらばならない
 
 start_day_dt = datetime.strptime(start_day, '%Y/%m/%d %H:%M:%S')
 end_day_dt = datetime.strptime(end_day, '%Y/%m/%d %H:%M:%S')
@@ -37,7 +37,7 @@ if start_day_dt >= end_day_dt:
 
 #変更する間隔(sec)
 
-terms = [10,30,90,300]
+terms = [10,30,90,300,]
 
 #DBのもとのレコード間隔
 org_term = 2
@@ -45,13 +45,15 @@ org_term = 2
 #closeの値をdbレコードに含める
 close_flg = False
 
+div_flg = True
+
 spread_flg = False
 
 #変化率のlogをとる
 math_log = False
 
-db_no_old = 3
-db_no_new = 3
+db_no_old = 0
+db_no_new = 0
 #取得元DB
 db_name_old = "GBPJPY_2_0"
 
@@ -125,14 +127,16 @@ def convert():
                         if after["c"] == prev["c"]:
                             divide = 1
                         if math_log:
-                            divide = 10000 * math.log(divide)
+                            divide = 10000 * math.log(divide, math.e * 0.1)
                         else:
                             divide = 10000 * (divide - 1)
 
                         child = {#'c': after["c"],
-                                 'd': divide,
                                  'sc': score,
                                  }
+
+                        if div_flg == True:
+                            child["d"] = divide
 
                         if spread_flg == True:
                             child["s"] = val["s"]
@@ -164,5 +168,5 @@ def convert():
 if __name__ == "__main__":
     convert()
 
-    redis_db_new.save()
+    #redis_db_new.save()
 

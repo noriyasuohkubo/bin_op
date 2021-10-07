@@ -17,7 +17,7 @@ from scipy import stats
 
 """
 
-start_day = "2009/01/01 00:00:00" #この時間含む(以上)
+start_day = "2019/12/01 00:00:00" #この時間含む(以上)
 end_day = "2020/01/01 00:00:00"  # この時間含めない(未満)
 
 start_day_dt = datetime.strptime(start_day, '%Y/%m/%d %H:%M:%S')
@@ -26,7 +26,7 @@ end_day_dt = datetime.strptime(end_day, '%Y/%m/%d %H:%M:%S')
 start_stp = int(time.mktime(start_day_dt.timetuple()))
 end_stp = int(time.mktime(end_day_dt.timetuple())) -1 #含めないので1秒マイナス
 
-math_log = False
+math_log = True
 
 db_no = 3
 #取得元DB
@@ -77,7 +77,7 @@ def get():
         if c_list[i] == c_list[i - pred_term]:
             divide = 1
         if math_log:
-            divide = 10000 * math.log(divide)
+            divide = 10000 * math.log(divide, math.e * 0.1)
         else:
             divide = 10000 * (divide - 1)
 
@@ -92,6 +92,7 @@ def get():
     print("mid:", d_np[int(len(d_np)/2) -1]) #中央値
     print("max:", np.max(d_np))
     print("min:", np.min(d_np))
+    print("max / avg:", np.max(d_np)/np.average(d_np))
 
     mean = np.average(d_np)
     se = np.std(d_np)
@@ -110,8 +111,8 @@ def get():
     elapsed_time = t2-t1
     #print("経過時間：" + str(elapsed_time))
 
-    #plt.hist(d_np, range=(-10, 10), bins=20)
-    #plt.show()
+    plt.hist(d_np, bins=20, range=(-0.1,0.1))
+    plt.show()
 
 if __name__ == "__main__":
     get()

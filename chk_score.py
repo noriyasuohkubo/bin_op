@@ -1,5 +1,5 @@
 import numpy as np
-import pandas as pd
+#import pandas as pd
 #import tensorflow as tf
 from matplotlib import pyplot as plt
 from decimal import Decimal
@@ -20,4 +20,4 @@ start_score = int(time.mktime(start.timetuple()))
 end_score = int(time.mktime(end.timetuple()))
 
 print(start_score)
-print(datetime.fromtimestamp(start_score))
+print(datetime.fromtimestamp(1619568386))

@@ -1,6 +1,5 @@
 from flask import Flask, request
 import numpy as np
-import keras.models
 import tensorflow as tf
 import configparser
 import os

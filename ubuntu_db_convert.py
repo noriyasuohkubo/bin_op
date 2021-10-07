@@ -20,8 +20,8 @@ spread→s
 
 """
 
-start_day = "2021/01/01 22:00:00" #この時間含む(以上)
-end_day = "2021/02/28 22:00:00"  # この時間含む(以下)
+start_day = "2021/08/01 00:00:00" #この時間含む(以上)
+end_day = "2021/09/30 22:00:00"  # この時間含む(以下)
 
 start_day_dt = datetime.strptime(start_day, '%Y/%m/%d %H:%M:%S')
 end_day_dt = datetime.strptime(end_day, '%Y/%m/%d %H:%M:%S')
@@ -33,7 +33,7 @@ end_stp = int(time.mktime(end_day_dt.timetuple()))
 math_log = False
 
 db_no_old = 8
-db_no_new = 3
+db_no_new = 0
 
 #取得元DB
 db_name_old = "GBPJPY_30_SPR"
@@ -51,7 +51,7 @@ def convert():
     print("result_data length:" + str(len(result_data)))
 
     close_tmp, time_tmp, score_tmp, spread_tmp = [], [], [], []
-
+    cnt0 = 0
     for line in result_data:
         body = line[0]
         score = int(line[1])
@@ -63,6 +63,7 @@ def convert():
         if tmps.get("spread") != None:
             # 0.3などの形で入っているので実際の値にするため10倍にする
             spread_tmp.append(int(Decimal(str(tmps.get("spread"))) * Decimal("10")))
+
         else:
             spread_tmp.append(0)
 
@@ -76,7 +77,7 @@ def convert():
         if close_tmp[i] == close_tmp[i -1] :
             divide = 1
         if math_log:
-            divide = 10000 * math.log(divide)
+            divide = 10000 * math.log(divide, math.e * 0.1)
         else:
             divide = 10000 * (divide - 1)
 
@@ -95,7 +96,7 @@ def convert():
         # もし登録できなかった場合
         if ret == 0:
             print(child)
-            print(score)
+            print(score_tmp[i])
 
     t2 = time.time()
     elapsed_time = t2-t1
@@ -104,5 +105,5 @@ def convert():
 if __name__ == "__main__":
     convert()
 
-    redis_db_new.save()
+    #redis_db_new.save()
 

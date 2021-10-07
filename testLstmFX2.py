@@ -18,7 +18,7 @@ from indices import index
 from decimal import Decimal
 from DataSequence2 import DataSequence2
 from readConf2 import *
-import pandas as pd
+
 import sys
 
 start = datetime(2018, 1, 1)

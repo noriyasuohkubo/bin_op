@@ -22,10 +22,10 @@ symbol = "GBPJPY_BASE"
 db_no = 3
 host = "127.0.0.1"
 
-start = datetime.datetime(2007, 1, 1)
+start = datetime.datetime(2011, 1, 1)
 start_stp = int(time.mktime(start.timetuple()))
 
-end = datetime.datetime(2020, 1, 2)
+end = datetime.datetime(2021, 1, 1)
 end_stp = int(time.mktime(end.timetuple()))
 
 redis_db = redis.Redis(host=host, port=6379, db=db_no, decode_responses=True)

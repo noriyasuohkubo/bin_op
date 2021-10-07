@@ -19,35 +19,47 @@ from indices import index
 from decimal import Decimal
 from DataSequence2 import DataSequence2
 from readConf2 import *
-import pandas as pd
+
 
 """
 LEARNING_TYPE == "CATEGORY"
-LEARNING_TYPE == "CATEGORY_BIN"
+LEARNING_TYPE == "CATEGORY_BIN_UP"
+LEARNING_TYPE == "CATEGORY_BIN_DW"
 の場合専用
 """
 
-#start = datetime(2018, 1, 1)
-#end = datetime(2019, 12, 31)
-
-start = datetime(2020, 1, 1, 22)
-end = datetime(2020, 12, 31, 22)
+start = datetime(2020, 1, 1)
+end = datetime(2021, 9, 30, 22)
 
 #2秒ごとの成績を計算する場合
 per_sec_flg = True
 
 #border以上の予想パーセントをしたものから正解率と予想数と正解数を返す
 
-def getAcc(res, border, dataY):
+def getAcc(res, border, dataY, bin_both_ind_up, bin_both_ind_dw):
     if LEARNING_TYPE == "CATEGORY":
-        up_ind = np.where((res[:, 0] > res[:, 1]) & (res[:, 0] > res[:, 2]) & (res[:, 0] > border))[0]
-        down_ind = np.where((res[:, 2] > res[:, 0]) & (res[:, 2] > res[:, 1]) & (res[:, 2] > border))[0]
-    elif LEARNING_TYPE == "CATEGORY_BIN":
-        up_ind = np.where((res[:, 0] > res[:, 1]) & (res[:, 0] > border))[0]
-        down_ind = np.where((res[:, 1] > res[:, 0])  & (res[:, 1] > border))[0]
+        up_ind = np.where((res[:, 0] > res[:, 1]) & (res[:, 0] >= res[:, 2]) & (res[:, 0] >= border))[0]
+        down_ind = np.where((res[:, 2] > res[:, 0]) & (res[:, 2] > res[:, 1]) & (res[:, 2] >= border))[0]
+    elif LEARNING_TYPE == "CATEGORY_BIN_BOTH":
+        up_ind = bin_both_ind_up
+        down_ind = bin_both_ind_dw
+    elif LEARNING_TYPE == "CATEGORY_BIN_UP":
+        up_ind = np.where(res[:, 0] >= border)[0]
+        down_ind = []
+    elif LEARNING_TYPE == "CATEGORY_BIN_DW":
+        up_ind = []
+        down_ind = np.where(res[:, 0] >= border)[0]
+
     x5_up = res[up_ind,:]
+    if LEARNING_TYPE == "CATEGORY_BIN_UP":
+        x5_up[:,0] = 1
+
     y5_up= dataY[up_ind,:]
+
     x5_down = res[down_ind,:]
+    if LEARNING_TYPE == "CATEGORY_BIN_DW":
+        x5_down[:,0] = 1
+
     y5_down= dataY[down_ind,:]
 
     up_eq = np.equal(x5_up.argmax(axis=1), y5_up.argmax(axis=1))
@@ -64,6 +76,23 @@ def getAcc(res, border, dataY):
         Acc = correct_num / total_num
 
     return Acc, total_num, correct_num
+
+#全体の正解率を返す
+
+def getAccTotal(res, dataY):
+
+    eq = np.equal(res.argmax(axis=1), dataY.argmax(axis=1))
+    cor_length = int(len(np.where(eq == True)[0]))
+
+    total_num = len(res)
+    correct_num = cor_length
+
+    if total_num ==0:
+        Acc =0
+    else:
+        Acc = correct_num / total_num
+
+    return Acc
 
 def getAccFx(res, border, dataY, change):
     if LEARNING_TYPE == "CATEGORY":
@@ -120,7 +149,7 @@ def countDrawdoan(max_drawdowns, max_drawdown, drawdown, money):
 
 def do_predict():
 
-    dataSequence2 = DataSequence2(0, start, end, True)
+    dataSequence2 = DataSequence2(0, start, end, True, False)
 
     # 正解ラベル(ndarray)
     correct_list = dataSequence2.get_correct_list()
@@ -153,55 +182,151 @@ def do_predict():
     target_divide_aft_list = np.array(dataSequence2.get_target_divide_aft_list())
 
     model_suffix = [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21",
+        "22",
+        "23",
+        "24",
+        "25",
+        "26",
+        "27",
+        "28",
+        "29",
+        "30",
+        "31",
+        "32",
+        "33",
+        "34",
+        "35",
+        "36",
+        "37",
+        "38",
+        "39",
+        "40",
+                          ]
 
-        "90*11",
-        "90*12",
-        "90*13",
-        "90*14",
-        "90*15",
-        "90*16",
-        "90*17",
-        "90*18",
-        "90*19",
-        "90*20",
-        "90*21",
-        "90*22",
-        "90*23",
-        "90*24",
-        "90*25",
-        "90*26",
-        "90*27",
-        "90*28",
-        "90*29",
-        "90*30",
-        "90*31",
-        "90*32",
-        "90*33",
-        "90*34",
-        "90*35",
-        "90*36",
-        "90*37",
-        "90*38",
-        "90*39",
-        "90*40",
+    #model_suffix = ["90*13",]
 
 
-                    ]
+    #target_spreadをkey,Valueは[UP,DW]それぞれのモデル
+    cat_bin_both_models = [
+        {
+            "1":
+            [
+            "GBPJPY_CATEGORY_BIN_UP_LSTM_BET2_TERM30_INPUT2-10-30-90-300_INPUT_LEN300-300-240-80-24_L-UNIT30-30-24-8-4_D-UNIT16-8-4_DROP0.0_L-K0_L-R0_DIVIDEMAX0_SPREAD2_UB1_202101_90_L-RATE0.0001",
+            "GBPJPY_CATEGORY_BIN_DW_LSTM_BET2_TERM30_INPUT2-10-30-90-300_INPUT_LEN300-300-240-80-24_L-UNIT30-30-24-8-4_D-UNIT16-8-4_DROP0.0_L-K0_L-R0_DIVIDEMAX0_SPREAD2_UB1_202101_90"
+            ]
+        },
 
-    #model_suffix = ["90*25",]
+    ]
+    if LEARNING_TYPE == "CATEGORY_BIN_BOTH":
+        model_suffix = cat_bin_both_models
 
-    border_list = [0.55,0.552,0.554,0.556,0.558,0.56,0.562,0.564,0.566,0.568,0.57,]  # 正解率と獲得金額のみ表示
-    #border_list = []  # 正解率と獲得金額のみ表示
-    border_list_show = []  # グラフも表示
+    #border_list = [0.56,0.562,0.564,0.566,0.568,0.57,0.572,0.574,0.576,0.578,0.58,]  # Turbo用
+    #border_list = [0.40,0.41,0.42,0.43,0.44,0.45,0.46,0.47,0.48,0.49,0.5,0.51,]  # TurboSpread 0用
+    #border_list = [0.46,0.47, 0.48,0.49, 0.5, 0.51, 0.52, 0.53, 0.54, 0.55,  0.56,]  # TurboSpread 1用
+    border_list = [ 0.45, 0.46,0.47, 0.48,0.49, 0.5, 0.51, 0.52, 0.53, 0.54, 0.55]   # TurboSpread 1 BIN_UP,BIN_DW用
+    #border_list = [ {-1:[0.45,0.46],0:[0.45,0.46],1:[0.45,0.46],}, ]  # BIN_BOTH用 それぞれのスプレッド対応モデルごとのborder(UP,DW) -1スプレッドは対応するモデルがない場合用
+
+    border_list_show = []
+    #border_list_show = [ 0.46,0.47, 0.48,0.49, 0.5, 0.51, 0.52, 0.53, 0.54, 0.55,  0.56,]  # グラフも表示
     #print("model:", FILE_PREFIX)
+
+    total_acc_txt = []
+    total_money_txt = []
+    max_val_suffix = {"val":0,}
+
     for suffix in model_suffix:
-        print(suffix)
+
+        if LEARNING_TYPE == "CATEGORY_BIN_BOTH":
+            #target_spreadのリスト
+            target_spreads = []
+            dic = sorted(suffix.items())
+
+            #zip関数に渡すスプレッドと予想結果のリスト
+            arg_lists = [target_spread_list]
+            for k, v in dic:
+                target_spreads.append(k)
+
+                #CATEGORY_BIN_UP とDWで予想した結果を合わせる
+                load_dir_up = "/app/model/bin_op/" + v[0]
+                model_up = tf.keras.models.load_model(load_dir_up)
+
+                load_dir_dw = "/app/model/bin_op/" + v[1]
+                model_dw = tf.keras.models.load_model(load_dir_dw)
+
+                # ndarrayで返って来る
+                predict_list_up = model_up.predict_generator(dataSequence2,
+                                                       steps=None,
+                                                       max_queue_size=PROCESS_COUNT * 1,
+                                                       use_multiprocessing=False,
+                                                       verbose=0)
+
+                predict_list_dw = model_dw.predict_generator(dataSequence2,
+                                                       steps=None,
+                                                       max_queue_size=PROCESS_COUNT * 1,
+                                                       use_multiprocessing=False,
+                                                       verbose=0)
+                predict_list_zero = np.zeros((len(predict_list_up), 2))
 
 
-        load_dir = "/app/model/bin_op/" + FILE_PREFIX + "-" + suffix
-        model = tf.keras.models.load_model(load_dir)
+                all = np.concatenate([predict_list_up, predict_list_zero, predict_list_dw], 1)
+                predict_list_tmp = all[:, [0, 2, 4]]
+                arg_lists.append(predict_list_tmp)
+
+            #各スプレッドに対応する予想結果をまとめる
+            predict_list = []
+
+            # スプレッドに対応する予想結果がない場合に対応させるtarget_spreadsのインデックス
+            idx_other = 0
+
+            for j in zip(*arg_lists): #arg_listsを展開して渡す
+                tmp_spr = j[0]
+                if tmp_spr in target_spreads:
+                    #target_spreadsの何番目に予想結果が入っているか取得
+                    idx = target_spreads.index(tmp_spr) + 1 #リストの最初にtarget_spread_listが入っているのでプラス1する
+                    predict_list.append(j[idx])
+                else:
+                    #スプレッドに対応する予想結果がない場合
+                    predict_list.append(j[idx_other])
+
+        else:
+            #suffix = "90*" + suffix
+            FILE_PREFIX = "GBPJPY_CATEGORY_BIN_DW_LSTM_BET2_TERM30_INPUT2-10-30-90-300_INPUT_LEN300-300-240-80-24_L-UNIT30-30-24-8-4_D-UNIT16-8-4_DROP0.0_L-K0_L-R0_DIVIDEMAX0_SPREAD7_UB1_202101_90_L-RATE0.001_LOSS-C-ENTROPY"
+
+            load_dir = "/app/model/bin_op/" + FILE_PREFIX + "-" + suffix
+
+            model = tf.keras.models.load_model(load_dir)
+
+            # ndarrayで返って来る
+            predict_list = model.predict_generator(dataSequence2,
+                                                   steps=None,
+                                                   max_queue_size=PROCESS_COUNT * 1,
+                                                   use_multiprocessing=False,
+                                                   verbose=0)
+
         #model.summary()
 
+        print("suffix:", suffix)
 
         # START tensorflow1で作成したモデル用
         """
@@ -211,12 +336,12 @@ def do_predict():
         """
         # END tensorflow1で作成したモデル用
 
-        # ndarrayで返って来る
-        predict_list = model.predict_generator(dataSequence2,
-                                      steps=None,
-                                      max_queue_size=PROCESS_COUNT * 1,
-                                      use_multiprocessing=False,
-                                      verbose=0)
+        under_dict = {}
+        over_dict = {}
+        line_val = 0.505
+        #line_val = 0.485
+        #line_val = 0.583
+
         """
         print("close", len(close_list), close_list[:10])
         print("score", len(score_list), score_list[:10])
@@ -224,12 +349,14 @@ def do_predict():
         print("pred_close", len(pred_close_list), pred_close_list[:10])
         """
 
-        print(datetime.now().strftime("%Y/%m/%d %H:%M:%S") + "Predict finished!! Now Calculating")
-
+        #print(datetime.now().strftime("%Y/%m/%d %H:%M:%S") + "Predict finished!! Now Calculating")
 
         r = redis.Redis(host='localhost', port=6379, db=DB_TRADE_NO)
 
-        for b in border_list:
+        AccTotal = getAccTotal(predict_list, correct_list)
+        total_acc_txt.append(str(AccTotal) )
+
+        for border_ind, border in enumerate(border_list):
 
             # 予想結果表示用テキストを保持
             result_txt = []
@@ -243,32 +370,72 @@ def do_predict():
             drawdown_trade = 0
             max_drawdowns_trade = []
 
-            border = b
-            if FX == False:
-                Acc, total_num, correct_num = getAcc(predict_list, border, correct_list)
+            #BIN_BOTHの場合、borderが一律でない為、先に対象indを求めておく
 
+            bin_both_ind = []
+            bin_both_ind_up = []
+            bin_both_ind_dw = []
+            if LEARNING_TYPE == "CATEGORY_BIN_BOTH":
+
+                for l, m in enumerate(zip(target_spread_list, predict_list)):
+                    spr_t = m[0]
+                    pred_t = m[1]
+                    if spr_t in border:
+                        up_border = border[spr_t][0]
+                        dw_border = border[spr_t][1]
+                    else:
+                        up_border = border[-1][0]
+                        dw_border = border[-1][1]
+                    if pred_t[0] > pred_t[1] and pred_t[0] >= pred_t[2] and  pred_t[0] >= up_border:
+                        bin_both_ind_up.append(l)
+                        bin_both_ind.append(l)
+                    elif pred_t[2] > pred_t[0] and pred_t[2] >= pred_t[1] and  pred_t[2] >= dw_border:
+                        bin_both_ind_dw.append(l)
+                        bin_both_ind.append(l)
+
+            if FX == False:
+                Acc, total_num, correct_num = getAcc(predict_list, border, correct_list, bin_both_ind_up, bin_both_ind_dw)
+                profit = (PAYOUT * correct_num) - ((total_num - correct_num) * PAYOFF)
             else:
                 Acc, total_num, correct_num, profit = getAccFx(predict_list, border, correct_list, change_list)
 
             #全体の予想結果を表示 ※UP or DOWNのみ SAMEの予想結果は無視
-            result_txt.append("Accuracy over " + str(border) + ":" + str(Acc))
-            result_txt.append("Total:" + str(total_num) + " Correct:" + str(correct_num))
+            if LEARNING_TYPE == "CATEGORY_BIN_BOTH":
+                result_txt.append("Accuracy over " + str(border_ind) + ":" + str(Acc))
+                result_txt.append("Total:" + str(total_num) + " Correct:" + str(correct_num))
+            else:
+                result_txt.append("Accuracy over " + str(border) + ":" + str(Acc))
+                result_txt.append("Total:" + str(total_num) + " Correct:" + str(correct_num))
 
             if FX == False:
-                win_money = (PAYOUT * correct_num) - ((total_num - correct_num) * PAYOFF)
-                result_txt.append("Earned Money:" + str(win_money))
+                result_txt.append("Earned Money:" + str(profit))
 
             else:
                 result_txt.append("Earned Money:" + str(profit))
 
+            if line_val >= Acc:
+                under_dict["acc"] = Acc
+                under_dict["money"] = profit
+            else:
+                if not "acc" in over_dict.keys():
+                    over_dict["acc"] = Acc
+                    over_dict["money"] = profit
+
             if border not in border_list_show:
                 for i in result_txt:
-                    myLogger(i)
+                    print(i)
                 continue
 
+            if (LEARNING_TYPE == "CATEGORY_BIN_UP" or LEARNING_TYPE == "CATEGORY_BIN_DW" ):
+                # up,downどれかが閾値以上の予想パーセントであるもののみ抽出
+                ind = np.where(predict_list[:, 0] >= border)[0]
+            elif LEARNING_TYPE != "CATEGORY_BIN_BOTH":
+                #up,downどちらかが閾値以上
+                ind = bin_both_ind
+            else:
+                # up,same,downどれかが閾値以上の予想パーセントであるもののみ抽出
+                ind = np.where(predict_list >=border)[0]
 
-            ind = np.where(predict_list >=border)[0]
-            #up,same,downどれかが閾値以上の予想パーセントであるもののみ抽出
             x5 = predict_list[ind,:]
             y5 = correct_list[ind,:]
             s5 = target_score_list[ind]
@@ -369,6 +536,8 @@ def do_predict():
             for x, y, s, c, sp, sc, ec, dp, da in zip(x5, y5, s5, c5, sp5, sc5, ec5, dp5, da5):
                 cnt += 1
                 max = x.argmax()
+                if (LEARNING_TYPE == "CATEGORY_BIN_UP" or LEARNING_TYPE == "CATEGORY_BIN_DW"):
+                    max = 0
                 probe_float = x[max]
                 probe = str(x[max])
                 percent = probe[0:4]
@@ -384,30 +553,10 @@ def do_predict():
                 correct = "NULL"
 
                 tradeReult = []
-                # 指定した秒のトレードは高確率でない場合スキップする
-                if len(EXCEPT_SEC_LIST) != 0:
-                    target_sec = datetime.fromtimestamp(s).second
-                    if target_sec in EXCEPT_SEC_LIST:
-                        if probe_float < border + EXCEPT_SEC_BORDER:
-                            money_tmp[s] = money
-                            if TRADE_FLG:
-                                money_trade_tmp[s] = money_trade
 
-                            continue
-
-                # 指定した分のトレードは無視する
-                if len(EXCEPT_MIN_LIST) != 0:
-                    target_min = datetime.fromtimestamp(s).minute
-                    target_sec = datetime.fromtimestamp(s).second
-                    if target_min in EXCEPT_MIN_LIST:
-                        if target_sec > EXCEPT_MIN_SEC_OVER:
-                            money_tmp[s] = money
-                            if TRADE_FLG:
-                                money_trade_tmp[s] = money_trade
-
-                            continue
-
-                if LEARNING_TYPE == "CATEGORY_BIN" or (LEARNING_TYPE == "CATEGORY_BIN" and (max == 0 or max == 2)):
+                if ((LEARNING_TYPE == "CATEGORY_BIN_UP" or LEARNING_TYPE == "CATEGORY_BIN_DW" ) and max == 0)  \
+                        or (LEARNING_TYPE == "CATEGORY" and (max == 0 or max == 2))\
+                        or (LEARNING_TYPE == "CATEGORY_BIN_BOTH" and (max == 0 or max == 2)):
                     win_flg = True if max == y.argmax() else False
 
                     if TRADE_FLG:
@@ -593,7 +742,7 @@ def do_predict():
                                 tmp_prob_real_cnt_list["lose_cnt"] = 1
                             prob_real_list[percent] = tmp_prob_real_cnt_list
 
-                if max == 0:
+                if (LEARNING_TYPE == "CATEGORY" and max == 0) or (LEARNING_TYPE == "CATEGORY_BIN_BOTH" and max == 0) or (LEARNING_TYPE == "CATEGORY_BIN_UP" and max == 0) :
                     # Up predict
 
                     if FX:
@@ -640,7 +789,7 @@ def do_predict():
                                               + probe + "," + "lose" + "," + startVal + "," + endVal
                                               + "," + result + "," + correct)
 
-                elif (LEARNING_TYPE == "CATEGORY_BIN" and max == 1) or (LEARNING_TYPE == "CATEGORY" and max == 2):
+                elif (LEARNING_TYPE == "CATEGORY" and max == 2) or (LEARNING_TYPE == "CATEGORY_BIN_BOTH" and max == 2)  or (LEARNING_TYPE == "CATEGORY_BIN_DW" and max == 0) :
                     #Down predict
                     if FX:
                         #cはaft-befなのでdown予想の場合の利益として-1を掛ける
@@ -728,7 +877,12 @@ def do_predict():
             if FX == True:
                 plt.title('border:' + str(border) + " position:" + str(FX_POSITION) + " spread:" + str(SPREAD) + " money:" + str(money))
             else:
-                plt.title('border:' + str(border) + " payout:" + str(PAYOUT) + " spread:" + str(SPREAD) + " money:" + str(money))
+                if LEARNING_TYPE == "CATEGORY_BIN_BOTH":
+                    plt.title(
+                        'border:' + str(border_ind) + " payout:" + str(PAYOUT) + " spread:" + str(SPREAD) + " money:" + str(
+                            money))
+                else:
+                    plt.title('border:' + str(border) + " payout:" + str(PAYOUT) + " spread:" + str(SPREAD) + " money:" + str(money))
 
             for txt in result_txt_trade:
                 res = txt.find("FALSE")
@@ -749,12 +903,14 @@ def do_predict():
 
             print("predict money: " + str(prev_money))
             for i in result_txt:
-                myLogger(i)
+                print(i)
 
             print("理論上のスプレッド毎の勝率")
             for k, v in sorted(SPREAD_LIST.items()):
                 if spread_trade.get(k, 0) != 0:
-                    print(k, " cnt:", spread_trade.get(k, 0), " win rate:", spread_win.get(k, 0) / spread_trade.get(k))
+                    print(k, " cnt:", spread_trade.get(k, 0),
+                          " profit:", spread_win.get(k, 0) * PAYOUT - (spread_trade.get(k) - spread_win.get(k, 0)) * PAYOFF,
+                          " win rate:", spread_win.get(k, 0) / spread_trade.get(k))
                 else:
                     print(k, " cnt:", spread_trade.get(k, 0))
 
@@ -762,8 +918,9 @@ def do_predict():
                 print("実トレード上のスプレッド毎の勝率")
                 for k, v in sorted(SPREAD_LIST.items()):
                     if spread_trade_real.get(k, 0) != 0:
-                        print(k, " cnt:", spread_trade_real.get(k, 0), " win rate:",
-                              spread_win_real.get(k, 0) / spread_trade_real.get(k))
+                        print(k, " cnt:", spread_trade_real.get(k, 0),
+                              " profit:", spread_win_real.get(k, 0) * PAYOUT - (spread_trade_real.get(k) - spread_win_real.get(k, 0)) * PAYOFF,
+                              " win rate:", spread_win_real.get(k, 0) / spread_trade_real.get(k),)
                     else:
                         print(k, " cnt:", spread_trade_real.get(k, 0))
 
@@ -808,7 +965,7 @@ def do_predict():
 
             print("MAX DrawDowns(理論上のドローダウン)")
             max_drawdowns.sort()
-            myLogger(max_drawdowns[0:10])
+            print(max_drawdowns[0:10])
 
             drawdown_cnt = {}
             for i in max_drawdowns:
@@ -822,7 +979,7 @@ def do_predict():
             if TRADE_FLG:
                 print("MAX DrawDowns(実トレードのドローダウン)")
                 max_drawdowns_trade.sort()
-                myLogger(max_drawdowns_trade[0:10])
+                print(max_drawdowns_trade[0:10])
                 drawdown_cnt = {}
                 for i in max_drawdowns_trade:
                     for k, v in DRAWDOWN_LIST.items():
@@ -861,12 +1018,38 @@ def do_predict():
                             win_rate = per_sec_dict_real[i][1] / per_sec_dict_real[i][0]
                             print("実際の秒毎の確率:" + str(i) + " トレード数:" + str(per_sec_dict_real[i][0]) + " 勝率:" + str(win_rate))
 
-            plt.show()
+            #plt.show()
 
+        if "acc" in under_dict.keys() and "acc" in over_dict.keys():
+            tmp_val = under_dict["money"] - (
+                        (under_dict["money"] - over_dict["money"]) / (over_dict["acc"] - under_dict["acc"]) * (
+                            line_val - under_dict["acc"]))
+            print("Acc:", line_val, " Money:", tmp_val)
+            total_money_txt.append(tmp_val)
+            if max_val_suffix["val"] < tmp_val:
+                max_val_suffix["val"] = tmp_val
+                max_val_suffix["suffix"] = suffix
+        else:
+            print("Acc:", line_val, " Money:")
+            total_money_txt.append("")
+
+    if "suffix" in max_val_suffix.keys():
+        print("max_val_suffix:", max_val_suffix["suffix"])
+
+    print("total_acc_txt")
+    for i in total_acc_txt:
+        print(i)
+
+    print("total_money_txt")
+    for i in total_money_txt:
+        if i != "":
+            print(int(i))
+        else:
+            print("")
 
 if __name__ == "__main__":
 
-    print("load_dir = ", "/app/model/bin_op/" + FILE_PREFIX)
+    #print("load_dir = ", "/app/model/bin_op/" + FILE_PREFIX)
     do_predict()
 
     print("END!!!")

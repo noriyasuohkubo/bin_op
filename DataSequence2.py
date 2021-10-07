@@ -12,6 +12,9 @@ from readConf2 import *
 import scipy.stats
 import gc
 import math
+from subprocess import Popen, PIPE
+import psutil
+import sys
 
 logging.config.fileConfig( os.path.join(current_dir,"config","logging.conf"))
 logger = logging.getLogger("app")
@@ -19,8 +22,11 @@ myLogger = printLog(logger)
 
 class DataSequence2(Sequence):
 
-    def __init__(self, rec_num, startDt, endDt, test_flg):
+    def __init__(self, rec_num, startDt, endDt, test_flg, eval_flg):
         #コンストラクタ
+        self.db_fake = []
+        self.db_fake_score = {}
+        self.db_fake_score_list = [] #単純にscoreのリスト
         self.db1 = [] #divide値を保持
         self.db1_score = {} #scoreとdb1リストのインデックスを保持
         self.db1_score_list = [] #データ確認用
@@ -36,6 +42,12 @@ class DataSequence2(Sequence):
         self.db5 = []
         self.db5_score = {}
         self.db5_score_list = []
+        self.db6 = []
+        self.db6_score = {}
+        self.db6_score_list = []
+        self.db7 = []
+        self.db7_score = {}
+        self.db7_score_list = []
 
         self.rec_num = rec_num
         # 学習対象のみの各DBのインデックスと,DB内のインデックスおよび正解ラベルが入った子リストを保持する
@@ -48,6 +60,7 @@ class DataSequence2(Sequence):
         self.start_score = int(time.mktime(startDt.timetuple()))
         self.end_score = int(time.mktime(endDt.timetuple()))
         self.test_flg = test_flg
+        self.eval_flg = eval_flg
         self.time_list = []
         #testの場合のみ正解ラベルをリターンする
         self.correct_list = [] #test用 正解ラベルを保持
@@ -66,119 +79,261 @@ class DataSequence2(Sequence):
         self.target_spread_list = [] #test用
         self.target_divide_prev_list = [] #test用
         self.target_divide_aft_list = []  # test用
+        self.target_predict_list = [] #test用
 
-        r = redis.Redis(host='localhost', port=6379, db=DB_NO, decode_responses=True)
+        self.same_db_flg = True #すべて同じ足の長さのDBを使うかどうか 例)すべてGBPJPY_2_0のDBをつかう
 
-        # 長い足のDBから先に全件取得
-        db2_index = 0
-        for i, db in enumerate(DB2_LIST):
-            if test_flg == False:
-                #1日余分に読み込む
-                result = r.zrevrangebyscore(db, self.start_score, self.end_score - 3600 * 24, withscores=True)
-                result.reverse()
-                #result = r.zrange(db, 0, -1, withscores=True)
-            else:
-                result = r.zrangebyscore(db, self.start_score - 3600 * 24, self.end_score, withscores=True)
+        self.db_no = DB_NO
+        self.real_spread_flg = REAL_SPREAD_FLG
 
-            print(db ,len(result))
+        if self.test_flg:
+            self.db_no = DB_EVAL_NO
 
-            for j, line in enumerate(result):
-                body = line[0]
-                score = int(line[1])
-                tmps = json.loads(body)
-                if DIVIDE_ALL_FLG:
-                    self.db2.append(tmps.get("c"))
+        if self.eval_flg:
+            self.db_no = DB_EVAL_NO
+            self.real_spread_flg = REAL_SPREAD_EVAL_FLG
+
+        #すべて同じ足の長さのDBを使うかどうか判定
+        for i, db in enumerate(INPUT_LEN):
+            if i != len(INPUT_LEN) -1:
+                if DB_TERMS[i] != DB_TERMS[i + 1]:
+                    self.same_db_flg = False
+
+        print("same_db_flg:", self.same_db_flg)
+
+        r = redis.Redis(host='localhost', port=6379, db=self.db_no, decode_responses=True)
+
+        # Fake DB
+        db_fake_index = 0
+        if DB_FAKE_TERM != 0:
+            # メモリ空き容量を取得
+            print("before fake db ", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
+
+            for i, db in enumerate(DB_FAKE_LIST):
+                if test_flg == False:
+                    #1日余分に読み込む
+                    result = r.zrevrangebyscore(db, self.start_score, self.end_score - 3600 * 24, withscores=True)
+                    result.reverse()
+                    #result = r.zrange(db, 0, -1, withscores=True)
                 else:
-                    self.db2.append(tmps.get("d"))
-                self.db2_score[score] = db2_index
-                self.db2_score_list.append(score)
+                    result = r.zrangebyscore(db, self.start_score - 3600 * 24, self.end_score, withscores=True)
 
-                db2_index += 1
+                for j, line in enumerate(result):
+                    body = line[0]
+                    score = int(line[1])
+                    tmps = json.loads(body)
+                    if DIVIDE_ALL_FLG or DIRECT_FLG:
+                        self.db_fake.append(tmps.get("c"))
+                    else:
+                        self.db_fake.append(tmps.get("d"))
+                    self.db_fake_score[score] = db_fake_index
+                    self.db_fake_score_list.append(score)
 
-            del result
+                    db_fake_index += 1
 
-        db3_index = 0
-        for i, db in enumerate(DB3_LIST):
-            if test_flg == False:
-                #endscoreより1日余分に読み込む
-                result = r.zrevrangebyscore(db, self.start_score, self.end_score - 3600 * 24, withscores=True)
-                result.reverse()
-                # result = r.zrange(db, 0, -1, withscores=True)
-            else:
-                result = r.zrangebyscore(db, self.start_score - 3600 * 24, self.end_score, withscores=True)
-            print(db ,len(result))
+                del result
 
-            for j, line in enumerate(result):
-                body = line[0]
-                score = int(line[1])
-                tmps = json.loads(body)
-                if DIVIDE_ALL_FLG:
-                    self.db3.append(tmps.get("c"))
+        if self.same_db_flg == False:
+
+            # メモリ空き容量を取得
+            print("before db2 ", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
+
+            # 長い足のDBから先に全件取得
+            db2_index = 0
+            for i, db in enumerate(DB2_LIST):
+                if test_flg == False:
+                    #1日余分に読み込む
+                    result = r.zrevrangebyscore(db, self.start_score, self.end_score - 3600 * 24, withscores=True)
+                    result.reverse()
+                    #result = r.zrange(db, 0, -1, withscores=True)
                 else:
-                    self.db3.append(tmps.get("d"))
+                    result = r.zrangebyscore(db, self.start_score - 3600 * 24, self.end_score, withscores=True)
 
-                self.db3_score[score] = db3_index
-                self.db3_score_list.append(score)
+                #print(db ,len(result))
 
-                db3_index += 1
+                for j, line in enumerate(result):
+                    body = line[0]
+                    score = int(line[1])
+                    tmps = json.loads(body)
+                    if DIVIDE_ALL_FLG or DIRECT_FLG:
+                        self.db2.append(tmps.get("c"))
+                    else:
+                        self.db2.append(tmps.get("d"))
+                    self.db2_score[score] = db2_index
+                    self.db2_score_list.append(score)
 
-            del result
+                    db2_index += 1
 
-        db4_index = 0
-        for i, db in enumerate(DB4_LIST):
-            if test_flg == False:
-                #endscoreより1日余分に読み込む
-                result = r.zrevrangebyscore(db, self.start_score, self.end_score - 3600 * 24, withscores=True)
-                result.reverse()
-                # result = r.zrange(db, 0, -1, withscores=True)
-            else:
-                result = r.zrangebyscore(db, self.start_score - 3600 * 24, self.end_score, withscores=True)
-            print(db ,len(result))
+                del result
+                if test_flg == False:
+                    r.delete(db) #メモリ節約のため参照したDBは削除する
 
-            for j, line in enumerate(result):
-                body = line[0]
-                score = int(line[1])
-                tmps = json.loads(body)
+            # メモリ空き容量を取得
+            print("before db3 ", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
 
-                if DIVIDE_ALL_FLG:
-                    self.db4.append(tmps.get("c"))
+            db3_index = 0
+            for i, db in enumerate(DB3_LIST):
+                if test_flg == False:
+                    #endscoreより1日余分に読み込む
+                    result = r.zrevrangebyscore(db, self.start_score, self.end_score - 3600 * 24, withscores=True)
+                    result.reverse()
+                    # result = r.zrange(db, 0, -1, withscores=True)
                 else:
-                    self.db4.append(tmps.get("d"))
+                    result = r.zrangebyscore(db, self.start_score - 3600 * 24, self.end_score, withscores=True)
+                #print(db ,len(result))
 
-                self.db4_score[score] = db4_index
-                self.db4_score_list.append(score)
+                for j, line in enumerate(result):
+                    body = line[0]
+                    score = int(line[1])
+                    tmps = json.loads(body)
+                    if DIVIDE_ALL_FLG or DIRECT_FLG:
+                        self.db3.append(tmps.get("c"))
+                    else:
+                        self.db3.append(tmps.get("d"))
 
-                db4_index += 1
+                    self.db3_score[score] = db3_index
+                    self.db3_score_list.append(score)
 
-            del result
+                    db3_index += 1
 
-        db5_index = 0
-        for i, db in enumerate(DB5_LIST):
-            if test_flg == False:
-                #endscoreより1日余分に読み込む
-                result = r.zrevrangebyscore(db, self.start_score, self.end_score - 3600 * 24, withscores=True)
-                result.reverse()
-                # result = r.zrange(db, 0, -1, withscores=True)
-            else:
-                result = r.zrangebyscore(db, self.start_score - 3600 * 24, self.end_score, withscores=True)
-            print(db ,len(result))
+                del result
+                if test_flg == False:
+                    r.delete(db) #メモリ節約のため参照したDBは削除する
 
-            for j, line in enumerate(result):
-                body = line[0]
-                score = int(line[1])
-                tmps = json.loads(body)
+            # メモリ空き容量を取得
+            print("before db4 ", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
 
-                if DIVIDE_ALL_FLG:
-                    self.db5.append(tmps.get("c"))
+            db4_index = 0
+            for i, db in enumerate(DB4_LIST):
+                if test_flg == False:
+                    #endscoreより1日余分に読み込む
+                    result = r.zrevrangebyscore(db, self.start_score, self.end_score - 3600 * 24, withscores=True)
+                    result.reverse()
+                    # result = r.zrange(db, 0, -1, withscores=True)
                 else:
-                    self.db5.append(tmps.get("d"))
+                    result = r.zrangebyscore(db, self.start_score - 3600 * 24, self.end_score, withscores=True)
+                #print(db ,len(result))
 
-                self.db5_score[score] = db5_index
-                self.db5_score_list.append(score)
+                for j, line in enumerate(result):
+                    body = line[0]
+                    score = int(line[1])
+                    tmps = json.loads(body)
 
-                db5_index += 1
+                    if DIVIDE_ALL_FLG or DIRECT_FLG:
+                        self.db4.append(tmps.get("c"))
+                    else:
+                        self.db4.append(tmps.get("d"))
 
-            del result
+                    self.db4_score[score] = db4_index
+                    self.db4_score_list.append(score)
+
+                    db4_index += 1
+
+                del result
+                if test_flg == False:
+                    r.delete(db) #メモリ節約のため参照したDBは削除する
+
+            # メモリ空き容量を取得
+            print("before db5 ", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
+
+            db5_index = 0
+            for i, db in enumerate(DB5_LIST):
+                if test_flg == False:
+                    #endscoreより1日余分に読み込む
+                    result = r.zrevrangebyscore(db, self.start_score, self.end_score - 3600 * 24, withscores=True)
+                    result.reverse()
+                    # result = r.zrange(db, 0, -1, withscores=True)
+                else:
+                    result = r.zrangebyscore(db, self.start_score - 3600 * 24, self.end_score, withscores=True)
+                #print(db ,len(result))
+
+                for j, line in enumerate(result):
+                    body = line[0]
+                    score = int(line[1])
+                    tmps = json.loads(body)
+
+                    if DIVIDE_ALL_FLG or DIRECT_FLG:
+                        self.db5.append(tmps.get("c"))
+                    else:
+                        self.db5.append(tmps.get("d"))
+
+                    self.db5_score[score] = db5_index
+                    self.db5_score_list.append(score)
+
+                    db5_index += 1
+
+                del result
+                if test_flg == False:
+                    r.delete(db) #メモリ節約のため参照したDBは削除する
+
+                # メモリ空き容量を取得
+            print("before db6 ", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
+
+            db6_index = 0
+            for i, db in enumerate(DB6_LIST):
+                if test_flg == False:
+                    # endscoreより1日余分に読み込む
+                    result = r.zrevrangebyscore(db, self.start_score, self.end_score - 3600 * 24, withscores=True)
+                    result.reverse()
+                    # result = r.zrange(db, 0, -1, withscores=True)
+                else:
+                    result = r.zrangebyscore(db, self.start_score - 3600 * 24, self.end_score, withscores=True)
+                # print(db ,len(result))
+
+                for j, line in enumerate(result):
+                    body = line[0]
+                    score = int(line[1])
+                    tmps = json.loads(body)
+
+                    if DIVIDE_ALL_FLG or DIRECT_FLG:
+                        self.db6.append(tmps.get("c"))
+                    else:
+                        self.db6.append(tmps.get("d"))
+
+                    self.db6_score[score] = db6_index
+                    self.db6_score_list.append(score)
+
+                    db6_index += 1
+
+                del result
+                if test_flg == False:
+                    r.delete(db)  # メモリ節約のため参照したDBは削除する
+
+                # メモリ空き容量を取得
+            print("before db7 ", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
+
+            db7_index = 0
+            for i, db in enumerate(DB7_LIST):
+                if test_flg == False:
+                    # endscoreより1日余分に読み込む
+                    result = r.zrevrangebyscore(db, self.start_score, self.end_score - 3600 * 24, withscores=True)
+                    result.reverse()
+                    # result = r.zrange(db, 0, -1, withscores=True)
+                else:
+                    result = r.zrangebyscore(db, self.start_score - 3600 * 24, self.end_score, withscores=True)
+                # print(db ,len(result))
+
+                for j, line in enumerate(result):
+                    body = line[0]
+                    score = int(line[1])
+                    tmps = json.loads(body)
+
+                    if DIVIDE_ALL_FLG or DIRECT_FLG:
+                        self.db7.append(tmps.get("c"))
+                    else:
+                        self.db7.append(tmps.get("d"))
+
+                    self.db7_score[score] = db7_index
+                    self.db7_score_list.append(score)
+
+                    db7_index += 1
+
+                del result
+                if test_flg == False:
+                    r.delete(db)  # メモリ節約のため参照したDBは削除する
+
+        # メモリ空き容量を取得
+        print("before db1 ", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
 
         up = 0
         down = 0
@@ -198,6 +353,8 @@ class DataSequence2(Sequence):
                 result = r.zrangebyscore(db, self.start_score, self.end_score, withscores=True)
 
             close_tmp, devide_tmp, score_tmp, spread_tmp = [], [], [], []
+            predict_tmp = []
+
             prev_c = 0
 
             for line in result:
@@ -207,18 +364,26 @@ class DataSequence2(Sequence):
 
                 close_tmp.append(tmps.get("c"))
 
-                if DIVIDE_ALL_FLG:
+                if DIVIDE_ALL_FLG or DIRECT_FLG:
                     self.db1.append(tmps.get("c"))
                 else:
                     self.db1.append(tmps.get("d"))
 
                 score_tmp.append(score)
 
+                if METHOD == "LSTM2":
+                    if tmps.get("p") != None:
+                        predict_tmp.append(tmps.get("p"))
+                    else:
+                        predict_tmp.append(None)
+                else:
+                    predict_tmp.append(None)
+
                 self.db1_score[score] = db1_index
                 self.db1_score_list.append(score)
 
                 #Spreadデータを使用する場合
-                if REAL_SPREAD_FLG:
+                if self.real_spread_flg:
                     spr = tmps.get("s")
                     spread_tmp.append(spr)
                     self.spread_cnt += 1
@@ -257,6 +422,8 @@ class DataSequence2(Sequence):
 
             list_idx = list_idx -1
 
+            CNT_0 = 0
+
             for i in range(len(close_tmp)):
                 list_idx += 1
 
@@ -282,81 +449,24 @@ class DataSequence2(Sequence):
                     self.train_dict_ex[score_tmp[i]] = None
                     continue
 
+                db_fake_index_tmp = -1
                 db2_index_tmp = -1
-
-                #DB2を使う場合
-                if len(INPUT_LEN) > 1:
-                    need_len = INPUT_LEN[1]
-                    if DIVIDE_ALL_FLG:
-                        need_len = INPUT_LEN[1] + 1
-                    try:
-                        db2_index_tmp = self.db2_score[score_tmp[i]]  # scoreからインデックスを取得
-                        start_score = self.db2_score_list[db2_index_tmp - need_len]
-                        end_score = self.db2_score_list[db2_index_tmp]
-                        if end_score != start_score + (need_len * DB2_TERM):
-                            #時刻がつながっていないものは除外 たとえば日付またぎなど
-                            self.train_dict_ex[score_tmp[i]] = None
-                            continue
-
-                    except Exception:
-                        #start_scoreのデータなしなのでスキップ
-                        self.train_dict_ex[score_tmp[i]] = None
-                        continue
-
                 db3_index_tmp = -1
-
-                # DB3を使う場合
-                if len(INPUT_LEN) > 2:
-                    need_len = INPUT_LEN[2]
-                    if DIVIDE_ALL_FLG:
-                        need_len = INPUT_LEN[2] + 1
-                    try:
-                        db3_index_tmp = self.db3_score[score_tmp[i]]  # scoreからインデックスを取得
-                        start_score = self.db3_score_list[db3_index_tmp - need_len]
-                        end_score = self.db3_score_list[db3_index_tmp]
-                        if end_score != start_score + (need_len * DB3_TERM):
-                            # 時刻がつながっていないものは除外 たとえば日付またぎなど
-                            self.train_dict_ex[score_tmp[i]] = None
-                            continue
-
-                    except Exception:
-                        # start_scoreのデータなしなのでスキップ
-                        self.train_dict_ex[score_tmp[i]] = None
-                        continue
-
                 db4_index_tmp = -1
-
-                # DB4を使う場合
-                if len(INPUT_LEN) > 3:
-                    need_len = INPUT_LEN[3]
-                    if DIVIDE_ALL_FLG:
-                        need_len = INPUT_LEN[3] + 1
-                    try:
-                        db4_index_tmp = self.db4_score[score_tmp[i]]  # scoreからインデックスを取得
-                        start_score = self.db4_score_list[db4_index_tmp - need_len]
-                        end_score = self.db4_score_list[db4_index_tmp]
-                        if end_score != start_score + (need_len * DB4_TERM):
-                            # 時刻がつながっていないものは除外 たとえば日付またぎなど
-                            self.train_dict_ex[score_tmp[i]] = None
-                            continue
-
-                    except Exception:
-                        # start_scoreのデータなしなのでスキップ
-                        self.train_dict_ex[score_tmp[i]] = None
-                        continue
-
                 db5_index_tmp = -1
+                db6_index_tmp = -1
+                db7_index_tmp = -1
 
-                # DB5を使う場合
-                if len(INPUT_LEN) > 4:
-                    need_len = INPUT_LEN[4]
+                # DB_FAKEを使う場合
+                if DB_FAKE_TERM != 0:
+                    need_len = DB_FAKE_INPUT_LEN
                     if DIVIDE_ALL_FLG:
-                        need_len = INPUT_LEN[4] + 1
+                        need_len = DB_FAKE_INPUT_LEN + 1
                     try:
-                        db5_index_tmp = self.db5_score[score_tmp[i]]  # scoreからインデックスを取得
-                        start_score = self.db5_score_list[db5_index_tmp - need_len]
-                        end_score = self.db5_score_list[db5_index_tmp]
-                        if end_score != start_score + (need_len * DB5_TERM):
+                        db_fake_index_tmp = self.db_fake_score[score_tmp[i]]  # scoreからインデックスを取得
+                        start_score = self.db_fake_score_list[db_fake_index_tmp - need_len]
+                        end_score = self.db_fake_score_list[db_fake_index_tmp]
+                        if end_score != start_score + (need_len * DB_FAKE_TERM):
                             # 時刻がつながっていないものは除外 たとえば日付またぎなど
                             self.train_dict_ex[score_tmp[i]] = None
                             continue
@@ -365,6 +475,121 @@ class DataSequence2(Sequence):
                         # start_scoreのデータなしなのでスキップ
                         self.train_dict_ex[score_tmp[i]] = None
                         continue
+
+                if self.same_db_flg == False:
+
+                    #DB2を使う場合
+                    if len(INPUT_LEN) > 1:
+                        need_len = INPUT_LEN[1]
+                        if DIVIDE_ALL_FLG:
+                            need_len = INPUT_LEN[1] + 1
+                        try:
+                            db2_index_tmp = self.db2_score[score_tmp[i]]  # scoreからインデックスを取得
+                            start_score = self.db2_score_list[db2_index_tmp - need_len]
+                            end_score = self.db2_score_list[db2_index_tmp]
+                            if end_score != start_score + (need_len * DB2_TERM):
+                                #時刻がつながっていないものは除外 たとえば日付またぎなど
+                                self.train_dict_ex[score_tmp[i]] = None
+                                continue
+
+                        except Exception:
+                            #start_scoreのデータなしなのでスキップ
+                            self.train_dict_ex[score_tmp[i]] = None
+                            continue
+
+                    # DB3を使う場合
+                    if len(INPUT_LEN) > 2:
+                        need_len = INPUT_LEN[2]
+                        if DIVIDE_ALL_FLG:
+                            need_len = INPUT_LEN[2] + 1
+                        try:
+                            db3_index_tmp = self.db3_score[score_tmp[i]]  # scoreからインデックスを取得
+                            start_score = self.db3_score_list[db3_index_tmp - need_len]
+                            end_score = self.db3_score_list[db3_index_tmp]
+                            if end_score != start_score + (need_len * DB3_TERM):
+                                # 時刻がつながっていないものは除外 たとえば日付またぎなど
+                                self.train_dict_ex[score_tmp[i]] = None
+                                continue
+
+                        except Exception:
+                            # start_scoreのデータなしなのでスキップ
+                            self.train_dict_ex[score_tmp[i]] = None
+                            continue
+
+                    # DB4を使う場合
+                    if len(INPUT_LEN) > 3:
+                        need_len = INPUT_LEN[3]
+                        if DIVIDE_ALL_FLG:
+                            need_len = INPUT_LEN[3] + 1
+                        try:
+                            db4_index_tmp = self.db4_score[score_tmp[i]]  # scoreからインデックスを取得
+                            start_score = self.db4_score_list[db4_index_tmp - need_len]
+                            end_score = self.db4_score_list[db4_index_tmp]
+                            if end_score != start_score + (need_len * DB4_TERM):
+                                # 時刻がつながっていないものは除外 たとえば日付またぎなど
+                                self.train_dict_ex[score_tmp[i]] = None
+                                continue
+
+                        except Exception:
+                            # start_scoreのデータなしなのでスキップ
+                            self.train_dict_ex[score_tmp[i]] = None
+                            continue
+
+                    # DB5を使う場合
+                    if len(INPUT_LEN) > 4:
+                        need_len = INPUT_LEN[4]
+                        if DIVIDE_ALL_FLG:
+                            need_len = INPUT_LEN[4] + 1
+                        try:
+                            db5_index_tmp = self.db5_score[score_tmp[i]]  # scoreからインデックスを取得
+                            start_score = self.db5_score_list[db5_index_tmp - need_len]
+                            end_score = self.db5_score_list[db5_index_tmp]
+                            if end_score != start_score + (need_len * DB5_TERM):
+                                # 時刻がつながっていないものは除外 たとえば日付またぎなど
+                                self.train_dict_ex[score_tmp[i]] = None
+                                continue
+
+                        except Exception:
+                            # start_scoreのデータなしなのでスキップ
+                            self.train_dict_ex[score_tmp[i]] = None
+                            continue
+                    # DB6を使う場合
+                    if len(INPUT_LEN) > 5:
+                        need_len = INPUT_LEN[5]
+                        if DIVIDE_ALL_FLG:
+                            need_len = INPUT_LEN[5] + 1
+                        try:
+                            db6_index_tmp = self.db6_score[score_tmp[i]]  # scoreからインデックスを取得
+                            start_score = self.db6_score_list[db6_index_tmp - need_len]
+                            end_score = self.db6_score_list[db6_index_tmp]
+                            if end_score != start_score + (need_len * DB6_TERM):
+                                # 時刻がつながっていないものは除外 たとえば日付またぎなど
+                                self.train_dict_ex[score_tmp[i]] = None
+                                continue
+
+                        except Exception:
+                            # start_scoreのデータなしなのでスキップ
+                            self.train_dict_ex[score_tmp[i]] = None
+                            continue
+
+                    # DB7を使う場合
+                    if len(INPUT_LEN) > 6:
+                        need_len = INPUT_LEN[6]
+                        if DIVIDE_ALL_FLG:
+                            need_len = INPUT_LEN[6] + 1
+                        try:
+                            db7_index_tmp = self.db7_score[score_tmp[i]]  # scoreからインデックスを取得
+                            start_score = self.db7_score_list[db7_index_tmp - need_len]
+                            end_score = self.db7_score_list[db7_index_tmp]
+                            if end_score != start_score + (need_len * DB7_TERM):
+                                # 時刻がつながっていないものは除外 たとえば日付またぎなど
+                                self.train_dict_ex[score_tmp[i]] = None
+                                continue
+
+                        except Exception:
+                            # start_scoreのデータなしなのでスキップ
+                            self.train_dict_ex[score_tmp[i]] = None
+                            continue
 
                 #ハイローオーストラリアの取引時間外を学習対象からはずす
                 if len(EXCEPT_LIST) != 0:
@@ -372,35 +597,68 @@ class DataSequence2(Sequence):
                         self.train_dict_ex[score_tmp[i]] = None
                         continue
 
+                # -1のスプレッドは無視する
+                if spread_tmp[i -1] < 0:
+                    self.train_dict_ex[score_tmp[i]] = None
+                    continue
+
                 # 指定スプレッド以外のトレードは無視する
                 if EXCEPT_SPREAD_FLG:
                     if not (spread_tmp[i -1] in TARGET_SPREAD_LIST):
                         self.train_dict_ex[score_tmp[i]] = None
                         continue
 
-                """
                 # 指定した秒のトレードは無視する
                 if len(EXCEPT_SEC_LIST) != 0:
                     target_sec = datetime.fromtimestamp(score_tmp[i]).second
                     if target_sec in EXCEPT_SEC_LIST:
                         self.train_dict_ex[score_tmp[i]] = None
                         continue
-                """
+
+                # 指定した分のトレードは無視する
+                if len(EXCEPT_MIN_LIST) != 0:
+                    target_min = datetime.fromtimestamp(score_tmp[i]).minute
+                    if target_min in EXCEPT_MIN_LIST:
+                        self.train_dict_ex[score_tmp[i]] = None
+                        continue
+
+                # BET_TERM以外のトレードは無視する
+                # 例えばDB1_TERMが1でBET_TERMが2の場合で、奇数秒は無視する
+                if score_tmp[i] % BET_TERM != 0:
+                    print("score_tmp[i] % BET_TERM != 0", score_tmp[i] , score_tmp[i] % BET_TERM)
+                    self.train_dict_ex[score_tmp[i]] = None
+                    continue
+
+                if METHOD == "LSTM2":
+                    if predict_tmp[i] == None:
+                        self.train_dict_ex[score_tmp[i]] = None
+                        continue
+
+                    """
+                    #予想値をdivide / predict_tmp[i]にしている場合、0を除外。0除算エラーとなるため
+                    if not(test_flg and eval_flg == False) and predict_tmp[i] == 0:
+                        self.train_dict_ex[score_tmp[i]] = None
+                        continue
+                    """
 
                 # 正解をいれていく
                 bef = close_tmp[i -1]
                 aft = close_tmp[i -1 + PRED_TERM]
 
-                divide = aft / bef
+                divide_org = aft / bef
                 if aft == bef:
-                    divide = 1
+                    divide_org = 1
 
-                divide = 10000 * (divide - 1)
+                divide = 10000 * (divide_org - 1)
 
                 if test_flg == False:
-                    if DIVIDE_MAX !=0 and DIVIDE_MAX < abs(divide):
-                        #変化率が大きすぎる場合 外れ値とみなして除外
-                        continue
+                    if DIVIDE_MAX !=0 :
+                        if abs(divide) < DIVIDE_MIN or DIVIDE_MAX < abs(divide) :
+                            #変化率が大きすぎる場合 外れ値とみなして除外
+                            continue
+                    else:
+                        if abs(divide) < DIVIDE_MIN :
+                            continue
 
                 #正解までの変化率
                 divide_aft = abs(divide)
@@ -415,60 +673,120 @@ class DataSequence2(Sequence):
                 tmp_label = None
 
                 spread = SPREAD
+                spread_t = SPREAD
 
-                if REAL_SPREAD_FLG:
+                if self.real_spread_flg:
                     spread = spread_tmp[i -1] + 1
+                    spread_t = spread_tmp[i -1]
 
-                if float(Decimal(str(aft)) - Decimal(str(bef))) >= float(Decimal(str("0.001")) * Decimal(str(spread))):
-                    # 上がった場合
-                    if LEARNING_TYPE == "CATEGORY":
-                        tmp_label = np.array([1, 0, 0])
-                    elif LEARNING_TYPE == "CATEGORY_BIN":
-                        tmp_label = np.array([1, 0])
-                    up = up + 1
-                elif float(Decimal(str(bef)) - Decimal(str(aft))) >= float(Decimal(str("0.001")) * Decimal(str(spread))):
-                    if LEARNING_TYPE == "CATEGORY":
-                        tmp_label = np.array([0, 0, 1])
-                    elif LEARNING_TYPE == "CATEGORY_BIN":
-                        tmp_label = np.array([0, 1])
-                    down = down + 1
+                if BORDER_DIV != 0 and not(test_flg == True and eval_flg == False):
+                    if divide >= BORDER_DIV:
+                        # 上がった場合
+                        if LEARNING_TYPE == "CATEGORY" or LEARNING_TYPE == "CATEGORY_BIN_BOTH":
+                            tmp_label = np.array([1, 0, 0])
+                        elif LEARNING_TYPE == "CATEGORY_BIN_UP":
+                            tmp_label = np.array([1, 0])
+                        elif LEARNING_TYPE == "CATEGORY_BIN_DW":
+                            tmp_label = np.array([0, 1])
+                        up = up + 1
+                    elif divide <= BORDER_DIV * -1:
+                        if LEARNING_TYPE == "CATEGORY" or LEARNING_TYPE == "CATEGORY_BIN_BOTH":
+                            tmp_label = np.array([0, 0, 1])
+                        elif LEARNING_TYPE == "CATEGORY_BIN_UP":
+                            tmp_label = np.array([0, 1])
+                        elif LEARNING_TYPE == "CATEGORY_BIN_DW":
+                            tmp_label = np.array([1, 0])
+                        down = down + 1
+                    else:
+                        if LEARNING_TYPE == "CATEGORY" or LEARNING_TYPE == "CATEGORY_BIN_BOTH":
+                            tmp_label = np.array([0, 1, 0])
+                        elif LEARNING_TYPE == "CATEGORY_BIN_UP":
+                            tmp_label = np.array([0, 1])
+                        elif LEARNING_TYPE == "CATEGORY_BIN_DW":
+                            tmp_label = np.array([0, 1])
                 else:
-                    if LEARNING_TYPE == "CATEGORY":
-                        tmp_label = np.array([0, 1, 0])
-                    elif LEARNING_TYPE == "CATEGORY_BIN":
-                        #2クラス分類なのでsameはなしとする
-                        continue
+                    if float(Decimal(str(aft)) - Decimal(str(bef))) >= float(Decimal(str("0.001")) * Decimal(str(spread))):
+                        # 上がった場合
+                        if LEARNING_TYPE == "CATEGORY" or LEARNING_TYPE == "CATEGORY_BIN_BOTH":
+                            tmp_label = np.array([1, 0, 0])
+                        elif LEARNING_TYPE == "CATEGORY_BIN_UP":
+                            tmp_label = np.array([1, 0])
+                        elif LEARNING_TYPE == "CATEGORY_BIN_DW":
+                            tmp_label = np.array([0, 1])
+                        up = up + 1
+                    elif float(Decimal(str(bef)) - Decimal(str(aft))) >= float(Decimal(str("0.001")) * Decimal(str(spread))):
+                        if LEARNING_TYPE == "CATEGORY" or LEARNING_TYPE == "CATEGORY_BIN_BOTH":
+                            tmp_label = np.array([0, 0, 1])
+                        elif LEARNING_TYPE == "CATEGORY_BIN_UP":
+                            tmp_label = np.array([0, 1])
+                        elif LEARNING_TYPE == "CATEGORY_BIN_DW":
+                            tmp_label = np.array([1, 0])
+                        down = down + 1
+                    else:
+                        if LEARNING_TYPE == "CATEGORY" or LEARNING_TYPE == "CATEGORY_BIN_BOTH":
+                            tmp_label = np.array([0, 1, 0])
+                        elif LEARNING_TYPE == "CATEGORY_BIN_UP":
+                            tmp_label = np.array([0, 1])
+                        elif LEARNING_TYPE == "CATEGORY_BIN_DW":
+                            tmp_label = np.array([0, 1])
 
-                if LEARNING_TYPE == "REGRESSION_SIGMA" or LEARNING_TYPE == "REGRESSION":
-                    tmp_label = np.array(divide)
+                    if LEARNING_TYPE == "REGRESSION_SIGMA" or LEARNING_TYPE == "REGRESSION":
+                        if METHOD == "LSTM2":
+                            if predict_tmp[i] != None:
+                                tmp_label = np.array(divide - predict_tmp[i])
+                            #else:
+                            #    #予想はかならずあるはずなので、なければエラー
+                            #    print("Error!!! predict is None! score:", score_tmp[i])
+                            #    sys.exit(1)
+                        else:
+                            if DIRECT_FLG:
+                                tmp_label = aft
+                            else:
+                                tmp_label = np.array(divide)
 
-                if test_flg:
+                if test_flg and eval_flg == False:
                     # 一旦scoreをキーに辞書に登録 後でスコア順にならべてtrain_listにいれる
                     # 複数のDBを使用した場合に結果を時系列順にならべて確認するため
                     if len(self.train_dict) == 0:
                         print("first score", score_tmp[i])
                     self.train_dict[score_tmp[i]] = [tmp_label, list_idx, db2_index_tmp, db3_index_tmp, db4_index_tmp,
-                                                     db5_index_tmp, bef, aft, spread_tmp[i -1], divide_prev, divide_aft]
+                                                     db5_index_tmp, db6_index_tmp, db7_index_tmp, predict_tmp[i], bef, aft, spread_t, divide_prev, divide_aft]
                 else:
-                    self.train_list.append([tmp_label, list_idx, db2_index_tmp, db3_index_tmp, db4_index_tmp, db5_index_tmp])
+                    self.train_list.append([tmp_label, list_idx, db2_index_tmp, db3_index_tmp, db4_index_tmp, db5_index_tmp, db6_index_tmp, db7_index_tmp, predict_tmp[i], bef ])
 
-        print("You Can Stop Redis!!!")
+            #if test_flg == False:
+            #    r.delete(db) #メモリ節約のため参照したDBは削除する
+
+        # メモリ空き容量を取得
+        #print("before db shutdown ", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
+
         # メモリ節約のためredis停止
         if test_flg == False:
-            r.shutdown()
+            #r.shutdown() #パスワード入力を求められる(権限がない)のでshutdownできない
+            sudo_password = 'Reikou0129'
+            command = 'systemctl stop redis'.split()
 
-        if test_flg:
+            p = Popen(['sudo', '-S'] + command, stdin=PIPE, stderr=PIPE,
+                      universal_newlines=True)
+            sudo_prompt = p.communicate(sudo_password + '\n')[1]
+
+            # メモリ空き容量を取得
+            print("after db shutdown ", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
+
+
+        if test_flg and eval_flg == False:
             #一番短い足のDBを複数インプットする場合用に
             #score順にならべかえてtrain_listと正解ラベルおよびレート変化幅(aft-bef)をそれぞれリスト化する
             for data in sorted(self.train_dict.items()):
-                self.train_list.append(data[1][:6])
+                self.train_list.append(data[1][:10])
                 self.correct_list.append(data[1][0])
-                self.pred_close_list.append(data[1][6])
-                self.real_close_list.append(data[1][7])
-                self.target_spread_list.append(data[1][8])
-                self.target_divide_prev_list.append(data[1][9])
-                self.target_divide_aft_list.append(data[1][10])
+                self.pred_close_list.append(data[1][9])
+                self.real_close_list.append(data[1][10])
+                self.target_spread_list.append(data[1][11])
+                self.target_divide_prev_list.append(data[1][12])
+                self.target_divide_aft_list.append(data[1][13])
                 self.train_score_list.append(data[0])
+                self.target_predict_list.append(data[1][8])
 
             #一番短い足のDBを複数インプットする場合用に
             #scoreのリストcloseのリストを作成 結果確認のグラフ描写で使うため
@@ -500,8 +818,10 @@ class DataSequence2(Sequence):
         self.db3_np = np.array(self.db3)
         self.db4_np = np.array(self.db4)
         self.db5_np = np.array(self.db5)
+        self.db6_np = np.array(self.db6)
+        self.db7_np = np.array(self.db7)
 
-        del self.db1, self.db2, self.db3, self.db4, self.db5
+        del self.db1, self.db2, self.db3, self.db4, self.db5, self.db6, self.db7
 
         self.data_length = len(self.train_list)
         self.cut_num = (self.data_length) % BATCH_SIZE
@@ -523,11 +843,11 @@ class DataSequence2(Sequence):
         myLogger("DOWN: ",down/self.data_length)
 
         #Spreadの内訳を表示
-        if REAL_SPREAD_FLG:
+        if self.real_spread_flg:
             print("spread total: ", self.spread_cnt)
             if self.spread_cnt != 0:
                 for k, v in sorted(self.spread_cnt_dict.items()):
-                    print(k, v / self.spread_cnt)
+                    print(k, v, v / self.spread_cnt)
 
         #シャッフルしとく
         if test_flg == False:
@@ -568,16 +888,24 @@ class DataSequence2(Sequence):
         def tmp_create_db(x, start_idx, db_no):
             target_idx = self.train_list[start_idx + x][db_no]
 
-            if db_no ==1 :
-                return self.db1_np[target_idx - INPUT_LEN[db_no - 1]:target_idx]
-            elif db_no ==2 :
-                return self.db2_np[target_idx - INPUT_LEN[db_no - 1]:target_idx]
-            elif db_no ==3 :
-                return self.db3_np[target_idx - INPUT_LEN[db_no - 1]:target_idx]
-            elif db_no ==4 :
-                return self.db4_np[target_idx - INPUT_LEN[db_no - 1]:target_idx]
-            elif db_no ==5 :
-                return self.db5_np[target_idx - INPUT_LEN[db_no - 1]:target_idx]
+            if self.same_db_flg == False:
+                if db_no ==1 :
+                    return self.db1_np[target_idx - INPUT_LEN[db_no - 1]:target_idx]
+                elif db_no ==2 :
+                    return self.db2_np[target_idx - INPUT_LEN[db_no - 1]:target_idx]
+                elif db_no ==3 :
+                    return self.db3_np[target_idx - INPUT_LEN[db_no - 1]:target_idx]
+                elif db_no ==4 :
+                    return self.db4_np[target_idx - INPUT_LEN[db_no - 1]:target_idx]
+                elif db_no ==5 :
+                    return self.db5_np[target_idx - INPUT_LEN[db_no - 1]:target_idx]
+                elif db_no ==6 :
+                    return self.db6_np[target_idx - INPUT_LEN[db_no - 1]:target_idx]
+                elif db_no ==7 :
+                    return self.db7_np[target_idx - INPUT_LEN[db_no - 1]:target_idx]
+            else:
+                 return self.db1_np[target_idx - INPUT_LEN[db_no - 1]:target_idx]
+
 
         self.create_db = np.vectorize(tmp_create_db, otypes=[np.ndarray])
 
@@ -605,6 +933,14 @@ class DataSequence2(Sequence):
                 base_arr = np.full(INPUT_LEN[db_no - 1], self.db5_np[target_idx -1])
                 tmp_arr = self.db5_np[target_idx - INPUT_LEN[db_no - 1] -1:target_idx -1]
                 return (tmp_arr/base_arr -1) * 10000
+            elif db_no ==6 :
+                base_arr = np.full(INPUT_LEN[db_no - 1], self.db6_np[target_idx -1])
+                tmp_arr = self.db6_np[target_idx - INPUT_LEN[db_no - 1] -1:target_idx -1]
+                return (tmp_arr/base_arr -1) * 10000
+            elif db_no ==7 :
+                base_arr = np.full(INPUT_LEN[db_no - 1], self.db7_np[target_idx -1])
+                tmp_arr = self.db7_np[target_idx - INPUT_LEN[db_no - 1] -1:target_idx -1]
+                return (tmp_arr/base_arr -1) * 10000
 
         self.create_db_all = np.vectorize(tmp_create_db_all, otypes=[np.ndarray])
 
@@ -615,6 +951,15 @@ class DataSequence2(Sequence):
 
         self.create_label = np.vectorize(tmp_create_label, otypes=[np.ndarray])
 
+        def tmp_create_predict(x, start_idx):
+            return self.train_list[start_idx + x][8]
+
+        self.create_predict = np.vectorize(tmp_create_predict, otypes=[np.ndarray])
+
+        def tmp_create_now_rate(x, start_idx):
+            return self.train_list[start_idx + x][9]
+
+        self.create_now_rate = np.vectorize(tmp_create_now_rate, otypes=[np.ndarray])
 
     # 学習データを返すメソッド
     # idxは要求されたデータが何番目かを示すインデックス値
@@ -643,7 +988,7 @@ class DataSequence2(Sequence):
 
         retX = []
 
-        if METHOD == "LSTM" or METHOD == "BY":
+        if METHOD == "LSTM" or METHOD == "BY" or METHOD == "LSTM2" or METHOD == "SimpleRNN"  or METHOD == "RNN"  or METHOD == "GRU" :
             for i in range(len(INPUT_LEN)):
                 tmpX = np.zeros((len(tmp_np), INPUT_LEN[i], 1))
 
@@ -657,6 +1002,16 @@ class DataSequence2(Sequence):
                 tmpX[:, :, 0] = tmp_arr[:]
 
                 retX.append(tmpX)
+
+            if METHOD == "LSTM2":
+                predict_data_tmp = self.create_predict(tmp_np, start_idx)
+                predict_data_tmp = predict_data_tmp.tolist()
+                retX.append(np.array(predict_data_tmp))
+
+            if NOW_RATE_FLG == True:
+                rate_data_tmp = self.create_now_rate(tmp_np, start_idx)
+                rate_data_tmp = rate_data_tmp.tolist()
+                retX.append(np.array(rate_data_tmp))
 
         elif METHOD == "NORMAL":
             for i in range(len(INPUT_LEN)):
@@ -679,7 +1034,10 @@ class DataSequence2(Sequence):
         """
         #テストの場合はテストデータのみ返す
         if self.test_flg:
-            return retX
+            if self.eval_flg:
+                return retX, retY
+            else:
+                return retX
         else:
             return retX, retY
 
@@ -725,3 +1083,6 @@ class DataSequence2(Sequence):
 
     def get_train_list_index(self):
         return self.train_list_idx
+
+    def get_target_predict_list(self):
+        return self.target_predict_list
