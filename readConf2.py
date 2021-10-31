@@ -18,11 +18,12 @@ SYMBOL = "GBPJPY"
 BET_TERM = 2
 
 # 予測する間隔:DB1_TERMが2でPRED_TERMが15なら30秒後の予測をする
-PRED_TERM = 15
+PRED_TERM = 60
 
 DB_NO = 3
-DB_EVAL_NO = 0 #highlow data
-#DB_EVAL_NO = 1 #dukascopy data
+#DB_EVAL_NO = 0 #highlow data
+DB_EVAL_NO = 1 #dukascopy data
+
 
 # Fake用DB 長い足を使わない場合とのテスト結果比較のため
 # 長い足を特徴量とする場合、テストデータが少なくなって、長い足を使わない場合とのテスト結果が正確ではなくなるため
@@ -251,34 +252,19 @@ L_D_RATE = 0 #dense kernel_regularizer
 DIVIDE_MAX = 0
 DIVIDE_MIN = 0
 
-FX = False
-FX_POSITION = 10000
-FX_STOP_LOSS = -0.3
-
+FX = True
+FX_STR = ""
+if FX :
+    FX_STR = "_FX"
+FX_POSITION = 2500 #30秒なら10000, 60秒なら5000
+FX_STOP_LOSS = -0.1
+FX_MORE_BORDER_RGR = 0.0
+FX_MORE_BORDER_CAT = 0
 START_MONEY = 1000000
-
-SPREAD = 3
-#SPREAD = 10 #FX用
-
-#Category 予測において　SPREADではなく変化率で分類する場合
-#レートが153.846153846154(=0.001/0.0000065)のとき、0.001円上がるとDivideは0.065
-#※Divie＝((X_after/X_before) -1) * 10000
-
-BORDER_DIV = 0
-#BORDER_DIV = 0.065 #(spread=1)
-#BORDER_DIV = 0.130 #(spread=2)
-#BORDER_DIV = 0.195 #(spread=3)
-#BORDER_DIV = 0.260 #(spread=4)
-#BORDER_DIV = 0.325 #(spread=5)
-#BORDER_DIV = 0.390 #(spread=6)
-
-BORDER_STR = "_SPREAD" + str(SPREAD)
-if BORDER_DIV != 0:
-    BORDER_STR = "_BDIV" + str(BORDER_DIV)
 
 #本番データのスプレッドを加味したテストをする場合
 #正解を出すときに使うSPREADに実データのスプレッドを使用する
-REAL_SPREAD_FLG = True
+REAL_SPREAD_FLG = False
 
 #eval時に本番データを使う場合
 REAL_SPREAD_EVAL_FLG = False
@@ -287,10 +273,10 @@ REAL_SPREAD_EVAL_FLG = False
 TRADE_FLG = False
 
 #スプレッドによりテスト除外する場合
-EXCEPT_SPREAD_FLG = True
+EXCEPT_SPREAD_FLG = False
 #テスト除外しないスプレッド
-TARGET_SPREAD_LIST = [8,]
-#TARGET_SPREAD_LIST = [0,1,2,3,4,5,6,7,8,9,10]
+#TARGET_SPREAD_LIST = [2,]
+TARGET_SPREAD_LIST = [0,1,2,3,4,5,6,7,8,9]
 
 #テスト除外するトレード秒を指定
 #EXCEPT_SEC_LIST = [24,26,28,30]
@@ -298,14 +284,14 @@ EXCEPT_SEC_LIST = []
 
 #テスト除外するトレード分を指定
 EXCEPT_MIN_LIST = []
-#EXCEPT_MIN_LIST = [57,]
-
 
 EXCEPT_DIV_LIST = []
 #EXCEPT_DIV_LIST = ["-0.0", "0.0"]
 
+#予想divideの上限値、これより大きい場合は取引しない
+EXCEPT_DIVIDE_MAX = 0
 
-DB_TRADE_NO = 8
+DB_TRADE_NO = 2
 DB_TRADE_NAME = "GBPJPY_30_SPR_TRADE"
 
 PAYOUT = 1300 #30秒 spread
@@ -325,10 +311,11 @@ PAYOFF = 1000
 #21時までがよさそう(サマータイムでない時期)
 #20時までがよさそう(サマータイム時期)
 
-#EXCEPT_LIST = [20,21,22,23] #FX
-
 EXCEPT_LIST = [20,21,22] #highlow
 #EXCEPT_LIST = [20,21,22,23,0,1] #3時間データ蓄積
+
+if FX:
+    EXCEPT_LIST = [20, 21, 22, 23]  # FX
 
 DRAWDOWN_LIST = {"drawdown1":(0,-10000),"drawdown2":(-10000,-20000),"drawdown3":(-20000,-30000),
                  "drawdown4":(-30000,-40000),"drawdown5":(-40000,-50000),"drawdown6":(-50000,-60000),
@@ -336,8 +323,8 @@ DRAWDOWN_LIST = {"drawdown1":(0,-10000),"drawdown2":(-10000,-20000),"drawdown3":
                  "drawdown9over": (-90000, -1000000),}
 
 SPREAD_LIST = {"spread0":(-1,0),"spread1":(0,1),"spread2":(1,2),"spread3":(2,3), "spread4":(3,4)
-    ,"spread5":(4,5),"spread6":(5,6),"spread7":(6,7),"spread8":(7,8)
-    , "spread10": (8, 10), "spread12": (10, 12), "spread14": (12, 14), "spread16": (14, 16),"spread16Over":(16,1000),}
+    ,"spread5":(4,5),"spread6":(5,6),"spread7":(6,7),"spread8":(7,8),"spread9":(8,9)
+    , "spread10": (9, 10), "spread12": (10, 12), "spread14": (12, 14), "spread16": (14, 16),"spread16Over":(16,1000),}
 
 
 DIVIDE_BEF_LIST = {"divide0":(-1,0),"divide0.1":(0,0.1),"divide0.2":(0.1,0.2),"divide0.3":(0.2,0.3),"divide0.4":(0.3,0.4),"divide0.5":(0.4,0.5),
@@ -382,12 +369,37 @@ BATCH_SIZE = 1024 * 1 * GPU_COUNT
 #process_count = multiprocessing.cpu_count() - 1
 PROCESS_COUNT = 2
 
-#LEARNING_TYPE = "CATEGORY" #多クラス分類
+LEARNING_TYPE = "CATEGORY" #多クラス分類
 #LEARNING_TYPE = "CATEGORY_BIN_UP" #2クラス分類
-LEARNING_TYPE = "CATEGORY_BIN_DW" #2クラス分類
+#LEARNING_TYPE = "CATEGORY_BIN_DW" #2クラス分類
 #LEARNING_TYPE = "CATEGORY_BIN_BOTH" #2クラス分類 UP,DOWN両方を使ってテストする用　学習するためではない
 #LEARNING_TYPE = "REGRESSION_SIGMA" #回帰 sigma
 #LEARNING_TYPE = "REGRESSION" #回帰
+
+#Category 予測において　SPREADではなく変化率で分類する場合
+#レートが153.846153846154(=0.001/0.0000065)のとき、0.001円上がるとDivideは0.065
+#※Divie＝((X_after/X_before) -1) * 10000
+
+BORDER_DIV = 0
+#BORDER_DIV = 0.065 #(spread=1)
+#BORDER_DIV = 0.130 #(spread=2)
+#BORDER_DIV = 0.195 #(spread=3)
+#BORDER_DIV = 0.260 #(spread=4)
+#BORDER_DIV = 0.325 #(spread=5)
+#BORDER_DIV = 0.390 #(spread=6)
+
+SPREAD = 1
+
+FX_SPREAD = 10
+
+BORDER_STR = ""
+if LEARNING_TYPE == "CATEGORY" or LEARNING_TYPE == "CATEGORY_BIN_BOTH" or LEARNING_TYPE == "CATEGORY_BIN_UP" or LEARNING_TYPE == "CATEGORY_BIN_DW":
+    BORDER_STR = "_SPREAD" + str(SPREAD)
+    if BORDER_DIV != 0:
+        BORDER_STR = "_BDIV" + str(BORDER_DIV)
+else:
+    #regressionの場合
+    SPREAD = 1
 
 OUTPUT = 0
 if LEARNING_TYPE == "CATEGORY" or LEARNING_TYPE == "CATEGORY_BIN_BOTH":
@@ -398,6 +410,7 @@ elif LEARNING_TYPE == "REGRESSION_SIGMA":
     OUTPUT = 2 # 平均, β(=logα α=標準偏差) #1つ目がmuで2つ目がbeta(精度パラメーターとする)
 elif LEARNING_TYPE == "REGRESSION":
     OUTPUT = 1
+
 
 LOSS_TYPE = "C-ENTROPY"
 #LOSS_TYPE = "B-ENTROPY"
@@ -410,6 +423,11 @@ LOSS_TYPE = "C-ENTROPY"
 #LOSS_TYPE = "HINGE"
 #LOSS_TYPE = "SQUARED_HINGE"
 #LOSS_TYPE = "POISSON"
+
+R_I = 'glorot_uniform' #RNN系の初期値
+D_I = 'glorot_uniform' #DENSE系の初期値
+O_I = 'glorot_uniform' #OUTPUT系の初期値
+INIT_STR = "_GU-GU-GU" #初期値の設定(R_I,D_I,O_I)によってモデル名のsuffixを変える
 
 SUFFIX = "_UB1_202101_90"
 #SUFFIX = ""
@@ -460,20 +478,22 @@ LEARNING_RATE = 0.001
 #試験的にモデルつくる際につける目印
 SUFFIX += "_L-RATE" + str(LEARNING_RATE)
 
+TERM = PRED_TERM * DB1_TERM
+
 if METHOD == "LSTM" or METHOD == "BY" or METHOD == "LSTM2" or METHOD == "SimpleRNN"  or METHOD == "RNN"  or METHOD == "GRU" :
-    FILE_PREFIX = SYMBOL + "_" + LEARNING_TYPE + "_" + METHOD + "_BET" + str(BET_TERM) + "_TERM" + str(PRED_TERM * DB1_TERM) + \
+    FILE_PREFIX = SYMBOL + "_" + LEARNING_TYPE + "_" + METHOD + "_BET" + str(BET_TERM) + "_TERM" + str(TERM) + \
                   "_INPUT" + DB_TERM_STR + \
                   "_INPUT_LEN" + INPUT_LEN_STR + \
                   "_L-UNIT" + LSTM_UNIT_STR + "_D-UNIT" + DENSE_UNIT_STR + "_DROP" + str(DROP) + \
                   "_L-K" + str(L_K_RATE) + "_L-R" + str(L_R_RATE) + L_D_STR + BATCH_NORMAL_STR + "_DIVIDEMAX" + str(DIVIDE_MAX) + DIVIDE_MIN_STR + \
-                  BORDER_STR + SUFFIX + "_LOSS-" + LOSS_TYPE
+                  BORDER_STR + SUFFIX + "_LOSS-" + LOSS_TYPE + INIT_STR + FX_STR
 elif METHOD == "NORMAL":
-    FILE_PREFIX = SYMBOL + "_" + LEARNING_TYPE + "_" + METHOD + "_BET" + str(BET_TERM) + "_TERM" + str(PRED_TERM * DB1_TERM) + \
+    FILE_PREFIX = SYMBOL + "_" + LEARNING_TYPE + "_" + METHOD + "_BET" + str(BET_TERM) + "_TERM" + str(TERM) + \
                   "_INPUT" + DB_TERM_STR + \
                   "_INPUT_LEN" + INPUT_LEN_STR + \
                   "_D-UNIT" + DENSE_UNIT_STR + "_DROP" + str(DROP) + \
                   "_L-K" + str(L_K_RATE) + "_L-R" + str(L_R_RATE) + L_D_STR + BATCH_NORMAL_STR + "_DIVIDEMAX" + str(DIVIDE_MAX) + DIVIDE_MIN_STR + \
-                  BORDER_STR + SUFFIX + "_LOSS-" + LOSS_TYPE
+                  BORDER_STR + SUFFIX + "_LOSS-" + LOSS_TYPE + INIT_STR + FX_STR
 
 #CPUのみ、またはGPU1つしか搭載していない場合
 SINGLE_FLG = False

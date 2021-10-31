@@ -26,24 +26,26 @@ symbol_org = "GBPJPY"
 close_shift = 1
 
 #新規に作成するDB名
-symbol = "GBPJPY_1_0"
+symbol = "GBPJPY_2_0"
 
 #直前の1分足のスコアをデータに含めるか
 #例えば12：03：44なら12:02
 include_min = False
 
-db_no = 3
+in_db_no = 1
+out_db_no = 1
 host = "127.0.0.1"
 
-start = datetime.datetime(2011, 1, 1)
+start = datetime.datetime(2020, 1, 1)
 start_stp = int(time.mktime(start.timetuple()))
 
-end = datetime.datetime(2021, 8, 1)
+end = datetime.datetime(2021, 10, 1)
 end_stp = int(time.mktime(end.timetuple()))
 
-redis_db = redis.Redis(host=host, port=6379, db=db_no, decode_responses=True)
+redis_db_in = redis.Redis(host=host, port=6379, db=in_db_no, decode_responses=True)
+redis_db_out = redis.Redis(host=host, port=6379, db=out_db_no, decode_responses=True)
 
-result_data = redis_db.zrangebyscore(symbol_org, start_stp, end_stp, withscores=True)
+result_data = redis_db_in.zrangebyscore(symbol_org, start_stp, end_stp, withscores=True)
 print("result_data length:" + str(len(result_data)))
 
 close_tmp, time_tmp, score_tmp = [], [], []
@@ -99,9 +101,11 @@ for i, v in enumerate(close_np):
     """
 
 
-    tmp_val = redis_db.zrangebyscore(symbol, score_tmp[i], score_tmp[i])
-    if len(tmp_val) == 0:
-        redis_db.zadd(symbol, json.dumps(child), score_tmp[i])
+    #tmp_val = redis_db.zrangebyscore(symbol, score_tmp[i], score_tmp[i])
+    #if len(tmp_val) == 0:
+    #    redis_db.zadd(symbol, json.dumps(child), score_tmp[i])
+
+    redis_db_out.zadd(symbol, json.dumps(child), score_tmp[i])
 
     if i % 10000000 == 0:
         dt_now = datetime.datetime.now()

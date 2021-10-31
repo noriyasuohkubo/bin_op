@@ -401,7 +401,7 @@ class DataSequence2(Sequence):
                             self.spread_cnt_dict["spread16Over"] = self.spread_cnt_dict.get("spread16Over", 0) + 1
 
                 else:
-                    spread_tmp.append(SPREAD)
+                    spread_tmp.append(SPREAD -1)
 
                 #test用にscoreをキーにレートを保持
                 #レートはそのscoreのopenレートとする
@@ -622,13 +622,6 @@ class DataSequence2(Sequence):
                         self.train_dict_ex[score_tmp[i]] = None
                         continue
 
-                # BET_TERM以外のトレードは無視する
-                # 例えばDB1_TERMが1でBET_TERMが2の場合で、奇数秒は無視する
-                if score_tmp[i] % BET_TERM != 0:
-                    print("score_tmp[i] % BET_TERM != 0", score_tmp[i] , score_tmp[i] % BET_TERM)
-                    self.train_dict_ex[score_tmp[i]] = None
-                    continue
-
                 if METHOD == "LSTM2":
                     if predict_tmp[i] == None:
                         self.train_dict_ex[score_tmp[i]] = None
@@ -673,11 +666,10 @@ class DataSequence2(Sequence):
                 tmp_label = None
 
                 spread = SPREAD
-                spread_t = SPREAD
+                spread_t = spread_tmp[i -1]
 
                 if self.real_spread_flg:
                     spread = spread_tmp[i -1] + 1
-                    spread_t = spread_tmp[i -1]
 
                 if BORDER_DIV != 0 and not(test_flg == True and eval_flg == False):
                     if divide >= BORDER_DIV:
@@ -1024,14 +1016,11 @@ class DataSequence2(Sequence):
                 retX.append(tmp_arr)
 
         """
-        if idx == 0:
-            if len(INPUT_LEN) == 3:
-                for i in range(3):
-                    print("X1 :", retX[0][i][-5:])
-                    print("X2 :", retX[1][i][-5:])
-                    print("X3 :", retX[2][i][-5:])
-                    print("Y :", retY[i])
+        if self.test_flg:
+            if idx == 0:
+                print("train_list :", self.train_list[:20])
         """
+
         #テストの場合はテストデータのみ返す
         if self.test_flg:
             if self.eval_flg:

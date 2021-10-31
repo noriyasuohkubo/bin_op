@@ -20,7 +20,7 @@ spread→s
 
 """
 
-start_day = "2021/08/01 00:00:00" #この時間含む(以上)
+start_day = "2020/01/01 00:00:00" #この時間含む(以上)
 end_day = "2021/09/30 22:00:00"  # この時間含む(以下)
 
 start_day_dt = datetime.strptime(start_day, '%Y/%m/%d %H:%M:%S')
@@ -36,7 +36,7 @@ db_no_old = 8
 db_no_new = 0
 
 #取得元DB
-db_name_old = "GBPJPY_30_SPR"
+db_name_old = "GBPJPY_60_SPR"
 db_name_new = "GBPJPY_2_0"
 
 redis_db_old = redis.Redis(host='localhost', port=6379, db=db_no_old, decode_responses=True)
@@ -65,7 +65,7 @@ def convert():
             spread_tmp.append(int(Decimal(str(tmps.get("spread"))) * Decimal("10")))
 
         else:
-            spread_tmp.append(0)
+            spread_tmp.append(-1)
 
     del result_data
 

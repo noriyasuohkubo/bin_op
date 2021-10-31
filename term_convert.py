@@ -20,7 +20,7 @@ make_close_dbで作成した2秒間隔のレコードを任意の間隔に拡張
 
 """
 
-start_day = "2020/01/01 00:00:00" #この時間含む(以上)
+start_day = "2019/12/31 00:00:00" #この時間含む(以上)
 end_day = "2021/09/30 22:00:00"  # この時間含めない(未満) 終了日は月から金としなけらばならない
 
 start_day_dt = datetime.strptime(start_day, '%Y/%m/%d %H:%M:%S')
@@ -39,9 +39,10 @@ if start_day_dt >= end_day_dt:
 
 terms = [10,30,90,300,]
 
-#DBのもとのレコード間隔
-org_term = 2
+#DBのもとのレコード秒間隔
+org_term = 1
 
+bet_term = 2
 #closeの値をdbレコードに含める
 close_flg = False
 
@@ -52,10 +53,10 @@ spread_flg = False
 #変化率のlogをとる
 math_log = False
 
-db_no_old = 0
-db_no_new = 0
+db_no_old = 3
+db_no_new = 3
 #取得元DB
-db_name_old = "GBPJPY_2_0"
+db_name_old = "GBPJPY_1_0"
 
 redis_db_old = redis.Redis(host='localhost', port=6379, db=db_no_old, decode_responses=True)
 redis_db_new = redis.Redis(host='localhost', port=6379, db=db_no_new, decode_responses=True)
@@ -95,8 +96,8 @@ def convert():
     for term in terms:
         # 1分間隔でつくるとして15なら00:01:15 00:02:15 00:03:15と位相をずらす
         shift_list = []
-        for i in range(int(Decimal(str(term)) / Decimal(str(org_term)))):
-            shift_list.append(term - ((i + 1) * org_term))
+        for i in range(int(Decimal(str(term)) / Decimal(str(bet_term)))):
+            shift_list.append(term - ((i + 1) * bet_term))
 
         print(shift_list)
 
@@ -144,16 +145,16 @@ def convert():
                         if close_flg == True:
                             child["c"] = after["c"]
 
-                        """
-                        tmp_val = redis_db.zrangebyscore(db_name_new, score, score)
+
+                        tmp_val = redis_db_new.zrangebyscore(db_name_new, score, score)
                         if len(tmp_val) == 0:
                             # レコードなければ登録
-                        """
-                        ret = redis_db_new.zadd(db_name_new, json.dumps(child), score)
-                        # もし登録できなかった場合
-                        if ret == 0:
-                            print(child)
-                            print(score)
+                            ret = redis_db_new.zadd(db_name_new, json.dumps(child), score)
+                            #ret = redis_db_new.zadd(db_name_new, json.dumps(child), score)
+                            # もし登録できなかった場合
+                            if ret == 0:
+                                print(child)
+                                print(score)
                     else:
                         continue
 

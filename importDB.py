@@ -8,22 +8,22 @@ import redis
 from readConf2 import *
 import sys
 
-export_host = "amd1"
+export_host = "localhost"
 import_host = "localhost"
 
-export_db_no = 8
-import_db_no = 8
+export_db_no = 0
+import_db_no = 3
 
 print(datetime.now(), "import start!!!")
 #db_list = DB1_LIST + DB2_LIST + DB3_LIST + DB4_LIST + DB5_LIST
-db_list = ["GBPJPY_30_SPR",]
+db_list = ["GBPJPY_1_0",]
 
 print(db_list)
 
-start = datetime(2021, 8, 1 )
+start = datetime(2020, 1, 1 )
 start_stp = int(time.mktime(start.timetuple()))
 
-end = datetime(2021, 9, 30,22)
+end = datetime(2021, 1, 2, 22)
 end_stp = int(time.mktime(end.timetuple()))
 
 def import_data():
@@ -39,11 +39,11 @@ def import_data():
             body = line[0]
             score = line[1]
             imp = import_r.zrangebyscore(db_name, score, score)
-            """
+
             if len(imp) == 0:
                 import_r.zadd(db_name, body, score)
-            """
-            import_r.zadd(db_name, body, score)
+
+            #import_r.zadd(db_name, body, score)
 
             cnt = cnt + 1
         if cnt != len(result_data):

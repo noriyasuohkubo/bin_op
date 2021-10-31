@@ -1,134 +1,144 @@
-from flask import Flask, request
 import numpy as np
+import tensorflow.keras.models
 import tensorflow as tf
 import configparser
 import os
 import redis
 import traceback
 import json
-from scipy.ndimage.interpolation import shift
 import logging.config
-from keras.models import load_model
-from keras import backend as K
-
+from tensorflow.keras.models import load_model
+from tensorflow.keras import backend as K
+from datetime import datetime
+from datetime import timedelta
 import time
+from indices import index
+from decimal import Decimal
+from flask import Flask, request
+import subprocess
+import send_mail as m
+from datetime import datetime
+from datetime import date
+from tensorflow.keras import initializers
 
-#GPU使わない方がはやい
+# nginxとflaskを使ってhttpによりAiの予想を呼び出す方式
+# systemctl start nginxでwebサーバを起動後、以下のコマンドによりuwsgiを起動し、localhost:80へアクセス
+# uwsgi --ini /app/bin_op/uwsgi.ini
+
+# tf.compat.v1.disable_eager_execution()
+
+# ubuntuではGPU使わない
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+machine = "amd3"
+
+
+save_file = "/app/model/bin_op/" + \
+            "GBPJPY_REGRESSION_LSTM_BET2_TERM30_INPUT2-10-30-90-300_INPUT_LEN300-300-240-80-24_L-UNIT8-8-6-3-2_D-UNIT_DROP0.0_L-K0_L-R0_DIVIDEMAX0_SPREAD2_UB1_LOSS-HUBER-90*18"
+
 app = Flask(__name__)
 
-#symbol = "EURUSD"
-symbol = "GBPJPY"
-db_no = 3
+if os.path.isdir(save_file):
 
-maxlen = 100
-drop = 0.1
-in_num=1
-pred_term = 6
-s = "5"
-np.random.seed(0)
-n_hidden =  30
-n_hidden2 = 0
-n_hidden3 = 0
-n_hidden4 = 0
-border = 0.56
-askbid = "_bid"
-bin_type = ""
-suffix = ".28*10"
+    model = load_model(save_file)
 
-current_dir = os.path.dirname(__file__)
-ini_file = os.path.join(current_dir,"config","config.ini")
-config = configparser.ConfigParser()
-config.read(ini_file)
-MODEL_DIR = config['lstm']['MODEL_DIR']
+    model.summary()
+    #print("load model")
 
-logging.config.fileConfig( os.path.join(current_dir,"config","logging.conf"))
-logger = logging.getLogger("app")
+    # 最初に一度推論させてグラフ作成し二回目以降の推論を早くする
+    retX = []
+    X2 = np.zeros((1, 300, 1))
+    X2[:, :, 0] = np.ones(300)
+    retX.append(X2)
 
-file_prefix = symbol + "_bydrop_in" + str(in_num) + "_" + s + "_m" + str(maxlen) + "_term_" + str(pred_term * int(s)) + "_hid1_" + str(n_hidden) + \
-                          "_hid2_" + str(n_hidden2) + "_hid3_" + str(n_hidden3) + "_hid4_" + str(n_hidden4) + "_drop_" + str(drop) + askbid + bin_type
+    X10 = np.zeros((1, 300, 1))
+    X10[:, :, 0] = np.ones(300)
+    retX.append(X10)
 
-model_file = os.path.join(MODEL_DIR, file_prefix +".hdf5" + suffix)
+    X30 = np.zeros((1, 240, 1))
+    X30[:, :, 0] = np.ones(240)
+    retX.append(X30)
 
-"""
-model_file = os.path.join(MODEL_DIR, "bydrop_in1_" + s + "_m" + str(maxlen) + "_hid1_" + str(n_hidden)
-                          + "_hid2_" + str(n_hidden2) + "_hid3_" + str(n_hidden3) + "_hid4_" + str(n_hidden4) +".hdf5")
-"""
-signal = ['UP','SAME','DOWN','SHORT']
+    X90 = np.zeros((1, 80, 1))
+    X90[:, :, 0] = np.ones(80)
+    retX.append(X90)
 
-# model and backend graph must be created on global
-global model, graph
-if os.path.isfile(model_file):
-    model = load_model(model_file)
-    model.compile(loss='categorical_crossentropy',optimizer='rmsprop', metrics=['accuracy'])
-    #print("Load Model")
+    X300 = np.zeros((1, 24, 1))
+    X300[:, :, 0] = np.ones(24)
+    retX.append(X300)
+
+    res = model.predict(retX, verbose=0, batch_size=1)
+    print("init!", res)
+
 else:
-    logger.warning("no model exists")
+    msg = "the Model not exists!"
+    print(msg)
+    m.send_message("uwsgi " + machine + " ", msg)
 
-graph = tf.get_default_graph()
-global predk
-predk = K.function([model.input], [model.output])
 
-def get_redis_data():
-    print("DB_NO:", db_no)
-    r = redis.Redis(host='localhost', port=6379, db=db_no)
-    result = r.zrevrange(symbol, 0  , maxlen
-                      , withscores=False)
-    if len(result) < maxlen:
-        return None
-    close_tmp= []
-    result.reverse()
-    for line in result:
-        tmps = json.loads(line.decode('utf-8'))
-        close_tmp.append(tmps.get("close"))
-    #logger.info(close_tmp[len(result)-3:])
-    close = 10000 * np.log(close_tmp/shift(close_tmp, 1, cval=np.NaN) )[1:]
+def do_predict(retX):
+    # print(retX.shape)
+    #start = time.time()
 
-    dataX = np.zeros((1,maxlen, 1))
-    dataX[:, :, 0] = close[:]
-    #print("X SHAPE:", dataX.shape)
+    res = model.predict_on_batch(retX)
 
-    return dataX
+    #elapsed_time = time.time() - start
+    #print("elapsed_time:{0}".format(elapsed_time) + "[sec]")
 
-@app.route('/', methods=['GET'])
-def root():
+    # print(res)
 
-    dataX = get_redis_data()
+    # K.clear_session()
+    return res
 
-    #data sort
-    if dataX is None:
-        return signal[3]
+
+@app.route("/", methods=['GET', 'POST'])
+def hello():
+    data = request.get_json()
+    # print(data)
+    #print(datetime.fromtimestamp(1609362000))
+    """
+    for k, v in sorted(data.items()):
+        print(k)
+        print(v)
     """
 
-    res = predk([dataX])[0][0]
+    vals2 = data["vals2"]
+    vals10 = data["vals10"]
+    vals30 = data["vals30"]
+    vals90 = data["vals90"]
+    vals300 = data["vals300"]
 
+    # close = 10000 * np.log(closes / shift(closes, 1, cval=np.NaN))[1:]
+    retX = []
+    X2 = np.zeros((1, 300, 1))
+    X2[:, :, 0] = vals2[:]
+    retX.append(X2)
 
-    pred = res.argmax()
-    prob = res[pred]
-    logger.info(
-        "predicted:" + signal[pred] + " probup:" + str(res[0]) + " probsame:" + str(res[1]) + " probdown:" + str(
-            res[2]))
-    ret = signal[pred]
-    if prob < border:
-        ret = signal[1]  # SAME
-    return ret
-    """
-    with graph.as_default():  # use the global graph
-        start = time.time()
-        res = model.predict(dataX, verbose=0)[0]
-        elapsed_time = time.time() - start
-        logger.info("old elapsed_time:{0}".format(elapsed_time) + "[sec]")
-        #print(res)
-        pred = res.argmax()
-        prob = res[pred]
-        logger.info("predicted:" + signal[pred] + " probup:" + str(res[0])+ " probsame:" + str(res[1])+ " probdown:" + str(res[2]))
-        ret = signal[pred]
-        if prob < border:
-            ret = signal[1] # SAME
+    X10 = np.zeros((1, 300, 1))
+    X10[:, :, 0] = vals10[:]
+    retX.append(X10)
 
+    X30 = np.zeros((1, 240, 1))
+    X30[:, :, 0] = vals30[:]
+    retX.append(X30)
 
-        return ret
+    X90 = np.zeros((1, 80, 1))
+    X90[:, :, 0] = vals90[:]
+    retX.append(X90)
 
+    X300 = np.zeros((1, 24, 1))
+    X300[:, :, 0] = vals300[:]
+    retX.append(X300)
+
+    res = do_predict(retX)
+    res_str = str(res[0][0])
+    #print(res_str)
+
+    #bef = 100.001
+    #mid = float(Decimal(str(bef)) * (Decimal(res_str) / Decimal("10000") + Decimal("1")))
+    #print(str(mid))
+
+    return res_str
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+    app.run()
+

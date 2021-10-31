@@ -20,4 +20,4 @@ start_score = int(time.mktime(start.timetuple()))
 end_score = int(time.mktime(end.timetuple()))
 
 print(start_score)
-print(datetime.fromtimestamp(1619568386))
+print(datetime.fromtimestamp(1577829590))

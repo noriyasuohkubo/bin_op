@@ -91,20 +91,20 @@ def create_model_normal():
         dense = None
         for i, unit in enumerate(DENSE_UNIT):
             if i == 0:
-                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu", kernel_initializer = init,
+                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu", kernel_initializer = D_I,
                                            kernel_regularizer=l2_D, )(concate)
                 if DROP > 0:
                     dense = keras.layers.Dropout(DROP)(dense)
             else:
-                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu", kernel_initializer = init,
+                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu", kernel_initializer = D_I,
                                            kernel_regularizer=l2_D, )(dense)
                 if DROP > 0:
                     dense = keras.layers.Dropout(DROP)(dense)
 
         if dense != None:
-            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = init)(dense)
+            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = O_I)(dense)
         else:
-            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = init)(inputs)
+            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = O_I)(inputs)
 
         model = keras.Model(inputs=[inputs], outputs=[output])
 
@@ -115,21 +115,21 @@ def create_model_normal():
         dense = None
         for i, unit in enumerate(DENSE_UNIT):
             if i == 0:
-                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu", kernel_initializer = init,
+                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu", kernel_initializer = D_I,
                                            kernel_regularizer=l2_D, )(input)  # 正則化： L2、
                 if DROP > 0:
                     dense = keras.layers.Dropout(DROP)(dense)
 
             else:
-                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu", kernel_initializer = init,
+                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu", kernel_initializer = D_I,
                                            kernel_regularizer=l2_D, )(dense)  # 正則化： L2、
                 if DROP > 0:
                     dense = keras.layers.Dropout(DROP)(dense)
 
         if dense != None:
-            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = init)(dense)
+            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = O_I)(dense)
         else:
-            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = init)(input)
+            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = O_I)(input)
 
         model = keras.Model(inputs=[input], outputs=[output])
 
@@ -188,21 +188,21 @@ def create_model_lstm():
         for i, unit in enumerate(LSTM_UNIT):
             input = keras.Input(shape=(INPUT_LEN[i], 1))
             if METHOD == "LSTM":
-                lstms.append(keras.layers.LSTM(LSTM_UNIT[i],  kernel_initializer = init,
+                lstms.append(keras.layers.LSTM(LSTM_UNIT[i],  kernel_initializer = R_I,
                                                kernel_regularizer = l2_K,
                                                recurrent_regularizer = l2_R,
                                                #dropout=0.,
                                                #recurrent_dropout=0.,
                                                return_sequences=False)(input))
             elif METHOD == "SimpleRNN":
-                lstms.append(keras.layers.SimpleRNN(LSTM_UNIT[i],  kernel_initializer = init,
+                lstms.append(keras.layers.SimpleRNN(LSTM_UNIT[i],  kernel_initializer = R_I,
                                                kernel_regularizer = l2_K,
                                                recurrent_regularizer = l2_R,
                                                #dropout=0.,
                                                #recurrent_dropout=0.,
                                                return_sequences=False)(input))
             elif METHOD == "GRU":
-                lstms.append(keras.layers.GRU(LSTM_UNIT[i],  kernel_initializer = init,
+                lstms.append(keras.layers.GRU(LSTM_UNIT[i],  kernel_initializer = R_I,
                                                kernel_regularizer = l2_K,
                                                recurrent_regularizer = l2_R,
                                                #dropout=0.,
@@ -228,7 +228,7 @@ def create_model_lstm():
             if i == 0:
                 if BATCH_NORMAL:
                     concate = BatchNormalization()(concate)
-                dense = keras.layers.Dense(DENSE_UNIT[i], kernel_initializer = init,
+                dense = keras.layers.Dense(DENSE_UNIT[i], kernel_initializer = D_I,
                               kernel_regularizer=l2_D,)(concate) # 正則化： L2、
                 if BATCH_NORMAL:
                     dense = BatchNormalization()(dense)
@@ -237,7 +237,7 @@ def create_model_lstm():
                 if DROP > 0:
                     dense = keras.layers.Dropout(DROP)(dense)
             else:
-                dense = keras.layers.Dense(DENSE_UNIT[i],  kernel_initializer = init,
+                dense = keras.layers.Dense(DENSE_UNIT[i],  kernel_initializer = D_I,
                               kernel_regularizer=l2_D,)(dense) # 正則化： L2、
                 if BATCH_NORMAL:
                     dense = BatchNormalization()(dense)
@@ -245,13 +245,13 @@ def create_model_lstm():
                 if DROP > 0:
                     dense = keras.layers.Dropout(DROP)(dense)
         if dense != None:
-            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = init)(dense)
+            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = O_I)(dense)
         else:
             if BATCH_NORMAL:
                 batch_nor = BatchNormalization()(concate)
-                output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = init)(batch_nor)
+                output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = O_I)(batch_nor)
             else:
-                output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer=init)(concate)
+                output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer=O_I)(concate)
 
         model = keras.Model(inputs=inputs, outputs=[output])
 
@@ -260,21 +260,21 @@ def create_model_lstm():
 
         input = keras.Input(shape=(INPUT_LEN[0], 1))
         if METHOD == "LSTM":
-            lstm = keras.layers.LSTM(LSTM_UNIT[0], kernel_initializer = init,
+            lstm = keras.layers.LSTM(LSTM_UNIT[0], kernel_initializer = R_I,
                                              kernel_regularizer = l2_K,
                                              recurrent_regularizer = l2_R,
                                              #dropout=0.,
                                              #recurrent_dropout=0.,
                                              return_sequences=False)(input)
         elif METHOD == "SimpleRNN":
-            lstm = keras.layers.SimpleRNN(LSTM_UNIT[0], kernel_initializer = init,
+            lstm = keras.layers.SimpleRNN(LSTM_UNIT[0], kernel_initializer = R_I,
                                              kernel_regularizer = l2_K,
                                              recurrent_regularizer = l2_R,
                                              #dropout=0.,
                                              #recurrent_dropout=0.,
                                              return_sequences=False)(input)
         elif METHOD == "GRU":
-            lstm = keras.layers.GRU(LSTM_UNIT[0], kernel_initializer = init,
+            lstm = keras.layers.GRU(LSTM_UNIT[0], kernel_initializer = R_I,
                                              kernel_regularizer = l2_K,
                                              recurrent_regularizer = l2_R,
                                              #dropout=0.,
@@ -283,22 +283,22 @@ def create_model_lstm():
         dense = None
         for i, unit in enumerate(DENSE_UNIT):
             if i == 0:
-                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu", kernel_initializer = init,
+                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu", kernel_initializer = D_I,
                                            kernel_regularizer=l2_D, )(lstm)  # 正則化： L2、
                 if DROP > 0:
                     dense = keras.layers.Dropout(DROP)(dense)
-                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu", kernel_initializer = init,
+                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu", kernel_initializer = D_I,
                                            kernel_regularizer=l2_D, )(dense)  # 正則化： L2、
             else:
-                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu", kernel_initializer = init,
+                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu", kernel_initializer = D_I,
                                            kernel_regularizer=l2_D, )(dense)  # 正則化： L2、
                 if DROP > 0:
                     dense = keras.layers.Dropout(DROP)(dense)
 
         if dense != None:
-            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = init)(dense)
+            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = O_I)(dense)
         else:
-            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = init)(lstm)
+            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = O_I)(lstm)
 
         model = keras.Model(inputs=[input], outputs=[output])
 
@@ -358,7 +358,7 @@ def create_model_by():
         inputs = []
         for i, unit in enumerate(LSTM_UNIT):
             input = keras.Input(shape=(INPUT_LEN[i], 1))
-            lstms.append(keras.layers.Bidirectional(keras.layers.LSTM(LSTM_UNIT[i],  kernel_initializer = init,
+            lstms.append(keras.layers.Bidirectional(keras.layers.LSTM(LSTM_UNIT[i],  kernel_initializer = R_I,
                                            kernel_regularizer = l2_K,
                                            recurrent_regularizer = l2_R,
                                            #dropout=0.,
@@ -371,19 +371,19 @@ def create_model_by():
         dense = None
         for i, unit in enumerate(DENSE_UNIT):
             if i == 0:
-                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu",  kernel_initializer = init,
+                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu",  kernel_initializer = D_I,
                               kernel_regularizer=l2_D,)(concate) # 正則化： L2、
                 if DROP > 0:
                     dense = keras.layers.Dropout(DROP)(dense)
             else:
-                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu",  kernel_initializer = init,
+                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu",  kernel_initializer = D_I,
                               kernel_regularizer=l2_D,)(dense) # 正則化： L2、
                 if DROP > 0:
                     dense = keras.layers.Dropout(DROP)(dense)
         if dense != None:
-            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = init)(dense)
+            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = O_I)(dense)
         else:
-            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = init)(concate)
+            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = O_I)(concate)
 
         model = keras.Model(inputs=inputs, outputs=[output])
 
@@ -391,7 +391,7 @@ def create_model_by():
         #inputが1種類の場合
 
         input = keras.Input(shape=(INPUT_LEN[0], 1))
-        lstm = keras.layers.Bidirectional(keras.layers.LSTM(LSTM_UNIT[0], kernel_initializer = init,
+        lstm = keras.layers.Bidirectional(keras.layers.LSTM(LSTM_UNIT[0], kernel_initializer = R_I,
                                          kernel_regularizer = l2_K,
                                          recurrent_regularizer = l2_R,
                                          #dropout=0.,
@@ -401,20 +401,20 @@ def create_model_by():
         dense = None
         for i, unit in enumerate(DENSE_UNIT):
             if i == 0:
-                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu", kernel_initializer = init,
+                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu", kernel_initializer = D_I,
                                            kernel_regularizer=l2_D, )(lstm)  # 正則化： L2、
                 if DROP > 0:
                     dense = keras.layers.Dropout(DROP)(dense)
             else:
-                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu", kernel_initializer = init,
+                dense = keras.layers.Dense(DENSE_UNIT[i], activation="relu", kernel_initializer = D_I,
                                            kernel_regularizer=l2_D, )(dense)  # 正則化： L2、
                 if DROP > 0:
                     dense = keras.layers.Dropout(DROP)(dense)
 
         if dense != None:
-            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = init)(dense)
+            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = O_I)(dense)
         else:
-            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = init)(lstm)
+            output = keras.layers.Dense(OUTPUT, activation=activ, kernel_initializer = O_I)(lstm)
 
         model = keras.Model(inputs=[input], outputs=[output])
 
@@ -551,7 +551,7 @@ def do_train():
     end = datetime(2012, 12, 20) #2021,1,1開始で90000000件の場合
 
     start_eval = datetime(2021, 1, 1, 0)
-    end_eval = datetime(2021, 6, 30, 22)
+    end_eval = datetime(2021, 9, 30, 22)
 
     if REAL_SPREAD_FLG:
         #training時はREAL_SPREAD_FLGはFalseであるべき
