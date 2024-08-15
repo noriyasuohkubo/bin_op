@@ -7,69 +7,147 @@ import time
 import gc
 import math
 from decimal import Decimal
-
+from util import *
+import send_mail as mail
 """
 dukasのデータをもとに
-ハイローのデータからスプレッド情報だけを取得して新たにレコード作成する
+他のデータからスプレッド情報だけを取得して新たにレコード作成する
 """
 
-#抽出元のDB名
-symbol_org = "GBPJPY_2_0_OLD"
-#新規に作成するDB名
-symbol = "GBPJPY_2_0"
-#ハイローのDB名
-symbol_hl = "GBPJPY_30_SPR"
+db_list = ["USDJPY_2_0"]
+db_tick_list = ["USDJPY_2_0_TICK"]
+#spread情報をもつコピー元DB名
+#db_name_sprad = "THREETRADER_USDJPY_S1"
+#db_name_sprad = "VANTAGE_USDJPY.p_S1"
+#db_name_sprad = "USDJPY_4_LION"
+db_name_sprad = "USDJPY_60_MONEYPARTNERS"
 
-#直前の1分足のスコアをデータに含めるか
-#例えば12：03：44なら12:02
-include_min = False
+db_no_org = 2
+#db_no_sprad = 5
+#db_no_sprad = 0
+db_no_sprad = 8
 
-in_db_no = 1
-out_db_no = 1
-hl_db_no = 1
+term = 2 #データ間隔秒
+
+default_spread = -1
 
 host = "127.0.0.1"
+#host_spread = "win2"
+#host_spread = "win5"
+#host_spread = "win6"
+host_spread = "localhost"
 
-start = datetime.datetime(2020, 1, 1)
+#True:スプレッド取得元がthreetraderなどMetaTraderのようなopenデータの場合
+#False:Lionなどの実トレードでのデータ
+open_flg = False
+
+#start = datetime.datetime(2023, 5, 1)
+#start = datetime.datetime(2024, 2, 1)
+#start = datetime.datetime(2024, 3, 1)
+start = datetime.datetime(2024, 6, 12)
 start_stp = int(time.mktime(start.timetuple()))
 
-end = datetime.datetime(2021, 10, 1)
+end = datetime.datetime(2024, 8, 10)
 end_stp = int(time.mktime(end.timetuple()))
 
-redis_db_in = redis.Redis(host=host, port=6379, db=in_db_no, decode_responses=True)
-redis_db_out = redis.Redis(host=host, port=6379, db=out_db_no, decode_responses=True)
-redis_db_hl = redis.Redis(host=host, port=6379, db=hl_db_no, decode_responses=True)
+redis_db = redis.Redis(host=host, port=6379, db=db_no_org, decode_responses=True)
+redis_db_spread = redis.Redis(host=host_spread, port=6379, db=db_no_sprad, decode_responses=True)
 
-result_data = redis_db_in.zrangebyscore(symbol_org, start_stp, end_stp, withscores=True)
-print("result_data length:" + str(len(result_data)))
 
-close_tmp, time_tmp, score_tmp = [], [], []
+for db_name in db_list:
 
-for line in result_data:
-    body = line[0]
-    score = line[1]
-    tmps = json.loads(body)
+    result_data = redis_db.zrangebyscore(db_name, start_stp, end_stp, withscores=True)
+    print("result_data length:" + str(len(result_data)))
 
-    # データが1秒間隔の場合
-    #DataSequence2の仕様により奇数秒にのみスプレッドデータをもたせる
-    #tmp_hl = redis_db_hl.zrangebyscore(symbol_hl, score -1, score -1)
-    tmp_hl = redis_db_hl.zrangebyscore(symbol_hl, score , score ) #データが2秒間隔の場合
-    spread_tmp = -1
+    close_tmp, time_tmp, score_tmp = [], [], []
 
-    if len(tmp_hl) != 0:
-        tmp_body = tmp_hl[0]
-        tmp_val = json.loads(tmp_body)
-        spread_tmp = -1
-        if tmp_val.get("spread") != None:
-            # 0.3などの形で入っているので実際の値にするため10倍にする
-            spread_tmp = int(Decimal(str(tmp_val.get("spread"))) * Decimal("10"))
+    for cnt, line in enumerate(result_data):
+        body = line[0]
+        score = line[1]
+        tmps = json.loads(body)
 
-    child = {'c': tmps.get("c"),
-             'd': tmps.get("d"),
-             't': tmps.get("t"),
-             's': spread_tmp,
-             }
-    redis_db_out.zadd(symbol, json.dumps(child), score)
+        target_score = score if open_flg == False else get_decimal_add(score, term)
+        tmp_hl = redis_db_spread.zrangebyscore(db_name_sprad, target_score , target_score )
+        spread_tmp = default_spread  #spread情報が取れなければdefault_spread
 
+        if len(tmp_hl) != 0:
+            tmp_body = tmp_hl[0]
+            tmp_val = json.loads(tmp_body)
+            tmp_spr = tmp_val.get("spread")
+            if tmp_spr != None:
+                if float(tmp_spr) < 1:
+                    #1以下は正しくスプレッドが登録されていないので10倍にする
+                    spread_tmp = int(get_decimal_multi(tmp_val.get("spread"), 10))
+                else:
+                    spread_tmp = int(tmp_spr)
+
+        tmps["s"] = spread_tmp
+
+        rm_cnt = redis_db.zremrangebyscore(db_name, score, score)  # 削除した件数取得
+        if rm_cnt != 1:
+            # 削除できなかったらおかしいのでエラーとする
+            print("cannot remove!!!", score)
+            exit()
+
+        redis_db.zadd(db_name, json.dumps(tmps), score)
+
+        if cnt % 1000000 == 0:
+            dt_now = datetime.datetime.now()
+            print(dt_now, " ", cnt)
+
+for db_name in db_tick_list:
+
+    result_data = redis_db.zrangebyscore(db_name, start_stp, end_stp, withscores=True)
+    print("result_data length:" + str(len(result_data)))
+
+    close_tmp, time_tmp, score_tmp = [], [], []
+
+    for cnt, line in enumerate(result_data):
+        body = line[0]
+        score = line[1]
+        tmps = json.loads(body)
+
+        target_score = score if open_flg == False else get_decimal_add(score, term)
+        tmp_hl = redis_db_spread.zrangebyscore(db_name_sprad, target_score , target_score )
+        spread_tmp = default_spread  #spread情報が取れなければdefault_spread
+
+        if len(tmp_hl) != 0:
+            tmp_body = tmp_hl[0]
+            tmp_val = json.loads(tmp_body)
+            tmp_spr = tmp_val.get("spread")
+            if tmp_spr != None:
+                if float(tmp_spr) < 1:
+                    #1以下は正しくスプレッドが登録されていないので10倍にする
+                    spread_tmp = int(get_decimal_multi(tmp_val.get("spread"), 10))
+                else:
+                    spread_tmp = int(tmp_spr)
+
+        tmps["s"] = spread_tmp
+
+        tk_list = tmps.get("tk").split(",")
+
+        new_tk_str = ""
+        for tmp_tk in tk_list:
+            tmp_close, tmp_spread = tmp_tk.split(":")
+            if new_tk_str == "":
+                new_tk_str = tmp_close + ":" + str(spread_tmp)
+            else:
+                new_tk_str = new_tk_str + "," + tmp_close + ":" + str(spread_tmp)
+
+        tmps["tk"] = new_tk_str
+
+        rm_cnt = redis_db.zremrangebyscore(db_name, score, score)  # 削除した件数取得
+        if rm_cnt != 1:
+            # 削除できなかったらおかしいのでエラーとする
+            print("cannot remove!!!", score)
+            exit()
+
+        redis_db.zadd(db_name, json.dumps(tmps), score)
+
+        if cnt % 1000000 == 0:
+            dt_now = datetime.datetime.now()
+            print(dt_now, " ", cnt)
 
 print("FINISH")
+# 終わったらメールで知らせる
+mail.send_message(host, ": make_spread_db finished!!!")

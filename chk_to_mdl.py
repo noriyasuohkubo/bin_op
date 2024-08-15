@@ -1,86 +1,50 @@
-import numpy as np
-import matplotlib.pyplot as plt
-
-import tensorflow as tf
-from tensorflow.keras.losses import huber
-from tensorflow import keras
-from tensorflow.keras.callbacks import EarlyStopping
-from tensorflow.keras import initializers
-import tensorflow.keras.optimizers as optimizers
-from tensorflow.keras.callbacks import CSVLogger
-from tensorflow.keras.optimizers import SGD, Adadelta, Adagrad, Adam, Adamax, RMSprop, Nadam
-from tensorflow.keras.layers import BatchNormalization
-
-import time
 import os
-
-from logging import getLogger
-from datetime import datetime
-from datetime import timedelta
-import time
-from decimal import Decimal
-from DataSequence2 import DataSequence2
-
-from readConf2 import *
-from lstm_generator2 import create_model_lstm, create_model_normal, create_model_by
+from lstm_generator2 import create_model_lstm, create_model_normal
+import conf_class
 
 """
 チェックポイントで保存した重みからモデルを改めて保存する
 """
 
 
-if __name__ == '__main__':
+def chk(c, file=None):
+    if file == None:
+        file = c.FILE_PREFIX
 
-    suffixs = [
-        ["0001", "1"],
-        ["0002", "2"],
-        ["0003", "3"],
-        ["0004", "4"],
-        ["0005", "5"],
-        ["0006", "6"],
-        ["0007", "7"],
-        ["0008", "8"],
-        ["0009", "9"],
-        ["0010", "10"],
-        ["0011", "11"],
-        ["0012", "12"],
-        ["0013", "13"],
-        ["0014", "14"],
-        ["0015", "15"],
-        ["0016", "16"],
-        ["0017", "17"],
-        ["0018", "18"],
-        ["0019", "19"],
-        ["0020", "20"],
-        ["0021", "21"],
-        ["0022", "22"],
-        ["0023", "23"],
-        ["0024", "24"],
-        ["0025", "25"],
-        ["0026", "26"],
-        ["0027", "27"],
-        ["0028", "28"],
-        ["0029", "29"],
-        ["0030", "30"],
-        ["0031", "31"],
-        ["0032", "32"],
-        ["0033", "33"],
-        ["0034", "34"],
-        ["0035", "35"],
-        ["0036", "36"],
-        ["0037", "37"],
-        ["0038", "38"],
-        ["0039", "39"],
+    learning_num = int(c.LEARNING_NUM)
+    loading_num = int(c.LOADING_NUM)
+    suffixs = []
 
-    ]
+    if c.LOAD_TYPE == 0:
+        for i in range(learning_num):
+            if i !=0:
+                if i < 10:
+                    key = "000" + str(i)
+                elif i < 100:
+                    key = "00" + str(i)
+                else:
+                    key = "0" + str(i)
+                suffixs.append([key, str(i)])
+    elif c.LOAD_TYPE == 1:
+        for i in range(learning_num - loading_num):
+            if i !=0:
+                if i < 10:
+                    key = "000" + str(i)
+                elif i < 100:
+                    key = "00" + str(i)
+                else:
+                    key = "0" + str(i)
+                suffixs.append([key, str(loading_num + i)])
 
+    for sf in suffixs:
+        print(sf)
+    #exit(1)
     #suffixs = [     ["0009", "130*64"],]
 
     for suffix in suffixs:
-        chk_path = os.path.join(CHK_DIR_LOAD, suffix[0])
-        save_path = "/app/model/bin_op/" + FILE_PREFIX + "-" + suffix[1]
-
-        print(chk_path)
+        chk_path = os.path.join(c.CHK_DIR, suffix[0])
+        save_path = "/app/model/bin_op/" + file + "-" + suffix[1]
+        print("chk_path",chk_path)
 
         if os.path.isdir(save_path):
             print("ERROR!! SAVE_DIR Already Exists ", save_path)
@@ -88,15 +52,22 @@ if __name__ == '__main__':
 
         model = None
 
-        if METHOD == "LSTM" or METHOD == "LSTM2":
-            model = create_model_lstm()
-        elif METHOD == "NORMAL":
-            model = create_model_normal()
-        elif METHOD == "BY":
-            model = create_model_by()
+        if c.METHOD == "LSTM" or c.METHOD == "LSTM2" or c.METHOD == "LSTM3" or c.METHOD == "LSTM4" or c.METHOD == "LSTM5" or c.METHOD == "LSTM6" or \
+                c.METHOD == "LSTM7" or c.METHOD == "LSTM8" or c.METHOD == "LSTM9" or c.METHOD == "LSTM10" or c.METHOD == "TCN" or c.METHOD == "TCN7":
+
+            model = create_model_lstm(c)
+        elif c.METHOD == "NORMAL":
+            model = create_model_normal(c)
+
         model.load_weights(chk_path)
 
         # SavedModel形式で保存
         model.save(save_path)
 
     print("END!!")
+
+if __name__ == '__main__':
+    conf = conf_class.ConfClass()
+    conf.FILE_PREFIX = "MN886"
+    conf.CHK_DIR = "/app/chk/bin_op/" + conf.FILE_PREFIX + "-" + conf.LEARNING_NUM
+    chk(conf)
