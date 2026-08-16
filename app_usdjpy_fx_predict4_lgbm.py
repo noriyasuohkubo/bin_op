@@ -23,7 +23,7 @@ from tensorflow.keras import initializers
 from util import *
 import pandas as pd
 import lightgbm as lgb
-from app_usdjpy_fx_predict4_lgbm_conf import *
+from app_usdjpy_fx_predict4_lgbm_test_conf import *
 
 """
 nginxとflaskを使ってhttpによりAiの予想を呼び出す方式

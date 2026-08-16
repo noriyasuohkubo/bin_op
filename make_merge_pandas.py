@@ -16,7 +16,7 @@ import pandas as pd
 import pickle
 import socket
 from datetime import datetime
-
+import send_mail as mail
 """
 lgbm用のpandasデータをマージする
 """
@@ -25,8 +25,8 @@ start_time = time.perf_counter()
 symbol = "USDJPY"
 
 dates = [
-    [datetime(2024, 6, 30), datetime(2024, 8, 10)],
-
+    #[datetime(2022, 1, 1), datetime(2026, 3, 24)],
+    [datetime(2024, 12, 1), datetime(2026, 6, 27)],
 ]
 
 for startDt, endDt in dates:
@@ -46,83 +46,76 @@ for startDt, endDt in dates:
         print("csv_file_name is needed")
         exit(1)
 
-    bet_term = 2
-    data_term = 2
+    bet_term = 1
+    data_term = 1
 
-    #leftのファイルを基本とする
-    left_df_file = "MF218"
-    left_df_file_path = "/db2/lgbm/" + symbol + get_lgbm_file_type(left_df_file) + left_df_file + ".pickle"
-
-    right_df_file = "IF276"
-    right_df_file_path = "/db2/lgbm/" + symbol + get_lgbm_file_type(right_df_file) + right_df_file + ".pickle"
-
-    """
-    #使用する列名
-    left_input = ["score","o",]
-    #left_tmp_input = [["2-d-" + str(i+1) for i in range(200)]]
-
-    left_tmp_input = [
-        "704-4-REG@704-4-REG-12@704-4-REG-4@704-4-REG-8@712-36-DW@712-36-DW-12@712-36-DW-4@712-36-DW-8@712-36-SAME@712-36-SAME-12@712-36-SAME-4@712-36-SAME-8@712-36-UP@712-36-UP-12@712-36-UP-4@712-36-UP-8@714-36-DW@714-36-DW-12@714-36-DW-4@714-36-DW-8@714-36-SAME@714-36-SAME-12@714-36-SAME-4@714-36-SAME-8@714-36-UP@714-36-UP-12@714-36-UP-4@714-36-UP-8@715-40-DW@715-40-DW-12@715-40-DW-4@715-40-DW-8@715-40-SAME@715-40-SAME-12@715-40-SAME-4@715-40-SAME-8@715-40-UP@715-40-UP-12@715-40-UP-4@715-40-UP-8".split("@")
+    files = [
+        "PF1485",
+        "PF1486",
+        "PF1487",
+        "PF1488",
+        "PF1489",
     ]
-    for t_l in left_tmp_input:
-        left_input.extend(t_l)
 
-    right_input = ["score"]
-    right_tmp_input = [
-        "716-26-DW@716-26-DW-12@716-26-DW-4@716-26-DW-8@716-26-SAME@716-26-SAME-12@716-26-SAME-4@716-26-SAME-8@716-26-UP@716-26-UP-12@716-26-UP-4@716-26-UP-8".split("@")
-    ]
-    for t_l in right_tmp_input:
-        right_input.extend(t_l)
-    """
-    on_col = "score"
+    left_df_file_path = ""
+    left_df = ""
+    for f in files:
+        if left_df_file_path == "":
+            left_df_file_path = "/db2/lgbm/" + symbol + get_lgbm_file_type(f) + f + ".pickle"
+            #ファイル読み込み
+            left_df = pd.read_pickle(left_df_file_path)
+            continue
 
-    #ファイル読み込み
-    left_df = pd.read_pickle(left_df_file_path)
+        else:
+            right_df_file_path = "/db2/lgbm/" + symbol + get_lgbm_file_type(f) + f + ".pickle"
 
-    print("left_df info")
-    print(left_df.info())
-    print("memory1", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
-    # 開始、終了期間で絞る
-    left_df.query('@start_score <= score < @end_score', inplace=True)
-    print("memory1.1", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
-    #del left_df_tmp
-    gc.collect()
-    print("memory1.2", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
+            on_col = "score"
+            pd.options.display.float_format = '{:.6f}'.format
 
-    right_df = pd.read_pickle(right_df_file_path)
-    print("right_df info")
-    print(right_df.info())
-    # 開始、終了期間で絞る
-    right_df.query('@start_score <= score < @end_score', inplace=True)
-    print("memory2", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
+            print("left_df info")
+            print(left_df.info())
+            print(left_df.iloc[:10,:])
 
+            print("memory1", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
+            # 開始、終了期間で絞る
+            left_df.query('@start_score <= score < @end_score', inplace=True)
+            print("memory1.1", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
+            #del left_df_tmp
+            #gc.collect()
+            print("memory1.2", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
 
-    print("left_df cnt ",len(left_df.index))
-    print("right_df cnt ",len(right_df.index))
+            right_df = pd.read_pickle(right_df_file_path)
+            print("right_df info")
+            print(right_df.info())
+            print(right_df.iloc[:10,:])
+            # 開始、終了期間で絞る
+            right_df.query('@start_score <= score < @end_score', inplace=True)
+            print("memory2", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
 
+            print("left_df cnt ",len(left_df.index))
+            print("right_df cnt ",len(right_df.index))
 
-    #以下はメモリを食うのでコメントアウト
-    """
-    #カラム抽出
-    left_df = left_df.loc[:, left_input]
-    print("memory2.1", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
-    right_df = right_df.loc[:, right_input]
-    print("memory2.2", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
-    """
+            #マージするためにインデックスを一時的に削除
+            left_df.reset_index(inplace=True, drop=True)
+            print("memory2.3", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
+            right_df.reset_index(inplace=True, drop=True)
+            print("memory2.4", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
 
-    #マージするためにインデックスを一時的に削除
-    left_df.reset_index(inplace=True, drop=True)
-    print("memory2.3", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
-    right_df.reset_index(inplace=True, drop=True)
-    print("memory2.4", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
+            #マージ実施 left join.
+            # 左側にはスコアデータが続いているmake_ind_db.pyなどで作成したpandasをもってくる
+            left_df = pd.merge(left_df, right_df, on=on_col, how='left', copy=False)
+            print("memory2.5", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
 
-    #マージ実施 left join.
-    # 左側にはスコアデータが続いているmake_ind_db.pyなどで作成したpandasをもってくる
-    left_df = pd.merge(left_df, right_df, on=on_col, how='left', copy=False)
-    print("memory2.5", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
+            del right_df
+            #gc.collect()
 
-    del right_df
-    gc.collect()
+            csv_regist_cols = left_df.columns.tolist()
+
+            #oがleft,rightそれぞれにある場合
+            if 'o_y' in csv_regist_cols:
+                left_df.drop(columns=['o_y'], inplace=True)
+            if 'o_x' in csv_regist_cols:
+                left_df.rename(columns={'o_x': 'o'}, inplace=True)
 
     left_df.set_index("score", drop=False,inplace=True)
     print("memory2.6", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
@@ -137,13 +130,6 @@ for startDt, endDt in dates:
 
     print(left_df[:100])
     print(left_df[-100:])
-    csv_regist_cols = left_df.columns.tolist()
-
-    #oがleft,rightそれぞれにある場合
-    if 'o_y' in csv_regist_cols:
-        left_df.drop(columns=['o_y'], inplace=True)
-    if 'o_x' in csv_regist_cols:
-        left_df.rename(columns={'o_x': 'o'}, inplace=True)
 
     csv_regist_cols = left_df.columns.tolist()
 
@@ -176,7 +162,7 @@ for startDt, endDt in dates:
     elif mode == "pickle":
 
         input_name = list_to_str(csv_regist_cols, "@")
-        merge_files = "_MFS-" + list_to_str([left_df_file, right_df_file])
+        merge_files = "_MFS-" + list_to_str(files)
 
         tmp_file_name = symbol + "_B" + str(bet_term) + "_D" + str(data_term) + "_IN-" + input_name + "_" + \
                         date_to_str(startDt, format='%Y%m%d') + "-" + date_to_str(end_tmp,
@@ -226,3 +212,5 @@ for startDt, endDt in dates:
 print(datetime.now())
 print("FINISH")
 print("Processing Time(Sec)", time.perf_counter() - start_time)
+# 終わったらメールで知らせる
+mail.send_message("make_merge_pandas finished!!!")

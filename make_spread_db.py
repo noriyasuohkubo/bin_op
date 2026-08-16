@@ -14,40 +14,45 @@ dukasのデータをもとに
 他のデータからスプレッド情報だけを取得して新たにレコード作成する
 """
 
-db_list = ["USDJPY_2_0"]
-db_tick_list = ["USDJPY_2_0_TICK"]
+db_list = ["USDJPY_1_0"]
+db_tick_list = ["USDJPY_1_0_TICK"]
 #spread情報をもつコピー元DB名
-#db_name_sprad = "THREETRADER_USDJPY_S1"
+#db_name_sprad = "ThreeTrader_USDJPY.raw_S1"
 #db_name_sprad = "VANTAGE_USDJPY.p_S1"
-#db_name_sprad = "USDJPY_4_LION"
-db_name_sprad = "USDJPY_60_MONEYPARTNERS"
+db_name_sprad = "USDJPY_4_SBI"
+#db_name_sprad = "USDJPY_60_MONEYPARTNERS"
+#db_name_sprad = 'ThreeTrader_USDJPY.raw_S1'
 
-db_no_org = 2
+db_no_org = 4
 #db_no_sprad = 5
 #db_no_sprad = 0
 db_no_sprad = 8
 
-term = 2 #データ間隔秒
+term_org = 1
+term_spread = 1
 
 default_spread = -1
 
 host = "127.0.0.1"
+
 #host_spread = "win2"
-#host_spread = "win5"
-#host_spread = "win6"
-host_spread = "localhost"
+#host_spread = "ub2"
+#host_spread = "win8"
+#host_spread = "win4"
+host_spread = '192.168.1.115' #win4
 
 #True:スプレッド取得元がthreetraderなどMetaTraderのようなopenデータの場合
 #False:Lionなどの実トレードでのデータ
 open_flg = False
 
-#start = datetime.datetime(2023, 5, 1)
+start = datetime.datetime(2025, 4, 1)
+#start = datetime.datetime(2023, 5, 8)
 #start = datetime.datetime(2024, 2, 1)
 #start = datetime.datetime(2024, 3, 1)
-start = datetime.datetime(2024, 6, 12)
+#start = datetime.datetime(2024, 6, 12)
 start_stp = int(time.mktime(start.timetuple()))
 
-end = datetime.datetime(2024, 8, 10)
+end = datetime.datetime(2025, 11, 22)
 end_stp = int(time.mktime(end.timetuple()))
 
 redis_db = redis.Redis(host=host, port=6379, db=db_no_org, decode_responses=True)
@@ -66,7 +71,17 @@ for db_name in db_list:
         score = line[1]
         tmps = json.loads(body)
 
-        target_score = score if open_flg == False else get_decimal_add(score, term)
+        if term_org == term_spread:
+            if open_flg == False:
+                target_score = score
+            else:
+                target_score = get_decimal_add(score, term_spread)
+        else:
+            if open_flg == False:
+                target_score = get_decimal_sub(score, get_decimal_mod(score, term_spread))
+            else:
+                target_score = get_decimal_add(get_decimal_sub(score, get_decimal_mod(score, term_spread)), term_spread)
+
         tmp_hl = redis_db_spread.zrangebyscore(db_name_sprad, target_score , target_score )
         spread_tmp = default_spread  #spread情報が取れなければdefault_spread
 
@@ -77,9 +92,9 @@ for db_name in db_list:
             if tmp_spr != None:
                 if float(tmp_spr) < 1:
                     #1以下は正しくスプレッドが登録されていないので10倍にする
-                    spread_tmp = int(get_decimal_multi(tmp_val.get("spread"), 10))
+                    spread_tmp = float(get_decimal_multi(tmp_val.get("spread"), 10))
                 else:
-                    spread_tmp = int(tmp_spr)
+                    spread_tmp = float(tmp_spr)
 
         tmps["s"] = spread_tmp
 
@@ -107,7 +122,17 @@ for db_name in db_tick_list:
         score = line[1]
         tmps = json.loads(body)
 
-        target_score = score if open_flg == False else get_decimal_add(score, term)
+        if term_org == term_spread:
+            if open_flg == False:
+                target_score = score
+            else:
+                target_score = get_decimal_add(score, term_spread)
+        else:
+            if open_flg == False:
+                target_score = get_decimal_sub(score, get_decimal_mod(score, term_spread))
+            else:
+                target_score = get_decimal_add(get_decimal_sub(score, get_decimal_mod(score, term_spread)), term_spread)
+
         tmp_hl = redis_db_spread.zrangebyscore(db_name_sprad, target_score , target_score )
         spread_tmp = default_spread  #spread情報が取れなければdefault_spread
 
@@ -118,9 +143,9 @@ for db_name in db_tick_list:
             if tmp_spr != None:
                 if float(tmp_spr) < 1:
                     #1以下は正しくスプレッドが登録されていないので10倍にする
-                    spread_tmp = int(get_decimal_multi(tmp_val.get("spread"), 10))
+                    spread_tmp = float(get_decimal_multi(tmp_val.get("spread"), 10))
                 else:
-                    spread_tmp = int(tmp_spr)
+                    spread_tmp = float(tmp_spr)
 
         tmps["s"] = spread_tmp
 

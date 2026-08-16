@@ -15,7 +15,7 @@ import lightgbm as lgb
 from tensorflow.keras.models import load_model
 from util import *
 from tensorflow.keras import backend as K
-from app_usdjpy_fx_predict30_lgbm_conf import *
+from app_usdjpy_fx_predict30_lgbm_2009_conf import *
 from lgbm_make_data import LgbmMakeData
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -23,8 +23,9 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 """
 lstmモデルの予想結果を特徴量にしたlgbmモデルの予想結果を返すflaskのテスト用
 
-lgbmのテスト用pandasからランダムに抽出した予想日時とlstmの予想結果および、lgbmモデルの予想結果が
-作成しようとしているflaskのものとそれぞれ一致するかテストする
+lgbmのテスト用pandasからランダムに抽出した予想日時とlstmの予想結果を返す
+その予想日時をtest_lgbm_flask_http_usdjpy_predis.pyでorg_key_indexに指定して実際のclose時から
+予想結果が同じになるかテストする
 """
 
 def root_mean_squared_error(y_true, y_pred):
@@ -206,8 +207,8 @@ print(df.info())
 
 index_list = list(df.index)
 
-#key_index = None
-key_index = 1701805761 + 1
+key_index = None
+#key_index = 1755762478
 
 if key_index == None:
     while True:
@@ -229,15 +230,23 @@ if key_index == None:
 #LGBMモデル
 bst = lgb.Booster(model_file=model_dir_lgbm + lgbm_model_file)
 
-x = df.loc[[key_index], INPUT_DATA]
-print(x.info())
+for i in range(100):
+    key_index_tmp =  key_index + i
+    x = df.loc[[key_index_tmp], INPUT_DATA]
+    #print(x.info())
 
-x_dixt = x.to_dict(orient='index')
-col1 = sorted(x_dixt[key_index].items())
-# 正解予想取得
-predict_list1 = bst.predict(x, num_iteration=int(lgbm_model_file_suffix))
+    x_dixt = x.to_dict(orient='index')
+    col1 = sorted(x_dixt[key_index_tmp].items())
+    # 正解予想取得
+    predict_list1 = bst.predict(x, num_iteration=int(lgbm_model_file_suffix))
 
+    print("インプット",col1)
+    print("ランダムな予想時スコア:",key_index_tmp)
+    print(predict_list1) #[[0.46517532 0.04326665 0.49155803]]
 
+exit()
+
+#redis_db = redis.Redis(host='ub2', port=6379, db=2, decode_responses=True)
 redis_db = redis.Redis(host='127.0.0.1', port=6379, db=2, decode_responses=True)
 
 #モデルをロードしておく

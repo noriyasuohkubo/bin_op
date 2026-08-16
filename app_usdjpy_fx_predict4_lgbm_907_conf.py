@@ -11,7 +11,7 @@ test_lgbm_flask_http_usdjpy_thinkm.py
 SYMBOL = "USDJPY"
 PREDICT_REQUEST_HOST = "192.168.1.14"
 PREDICT_REQUEST_DB_NO = 8
-PREDICT_REQUEST_KEY = "USDJPY_PREDICT4"
+PREDICT_REQUEST_KEY = "USDJPY_PREDICT4_907"
 
 AI_MODEL_TERM = 1  #AIモデルの最小データ間隔秒(closeデータの間隔)
 
@@ -58,6 +58,9 @@ base_models =[
         "input_datas": ["d1", "d1_ehd1-1_eld1-1", "d1_ehd1-1_eld1-1", ],
         "input_separate_flg": True,
         "method": "LSTM7",
+        "db_host": "localhost",
+        "db_no":8,
+        "db_name": "USDJPY_predict4_887-39_lstm",
     },
     {
         "name": 'MN885-6',
@@ -67,6 +70,9 @@ base_models =[
         "input_datas": ["d1", "d1_ehd1-1_eld1-1", "d1_ehd1-1_eld1-1", ],
         "input_separate_flg": True,
         "method": "LSTM7",
+        "db_host": "localhost",
+        "db_no": 8,
+        "db_name": "USDJPY_predict4_885-6_lstm",
     },
     {
         "name": 'USDJPY_LT1_M7_LSTM1_B1_T4_I1-5-30_IL300-300-240_LU30-30-24_DU48-24-12_BNL2_BDIV0.25_201701_202303_L-RATE0.0005_LT1_ADAM_DA4_RA8_RRA9_d1_1_d1_ehd1-1_eld1-1_23-SEP_OT-d_OD-c_BS5120_SD0_SHU1_EL20-21-22_ub1_MN715-40',
@@ -76,6 +82,10 @@ base_models =[
         "input_datas": ["d1", "d1_ehd1-1_eld1-1", "d1_ehd1-1_eld1-1", ],
         "input_separate_flg": True,
         "method": "LSTM7",
+        "db_host": "localhost",
+        "db_no": 8,
+        "db_name": "USDJPY_predict4_715-40_lstm",
+
     },
     {
         "name": 'USDJPY_LT1_M7_LSTM1_B1_T4_I1-5-30_IL300-300-240_LU30-30-24_DU48-24-12_BNL2_BDIV0.5_201701_202303_L-RATE0.0005_LT1_ADAM_DA4_RA8_RRA9_d1_1_d1_ehd1-1_eld1-1_23-SEP_OT-d_OD-c_BS5120_SD0_SHU1_EL20-21-22_ub3_MN714-36',
@@ -85,10 +95,13 @@ base_models =[
         "input_datas": ["d1", "d1_ehd1-1_eld1-1", "d1_ehd1-1_eld1-1", ],
         "input_separate_flg": True,
         "method": "LSTM7",
+        "db_host": "localhost",
+        "db_no": 8,
+        "db_name": "USDJPY_predict4_714-36_lstm",
     },
 ]
 
 
 ###test_lgbm_flask_usdjpy_thinkm用
-test_file_path = "/db2/lgbm/" + SYMBOL + "/test_file/TESF284.pickle"
+test_file_path = "/db2/lgbm/" + SYMBOL + "/test_file/TESF304.pickle"
 db_name = 'USDJPY_1_0'

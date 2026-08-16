@@ -34,17 +34,32 @@ output = output_log(output_log_name)
 モデル学習
 '''
 class Objective:
-    def __init__(self, conf, params, train_data, eval_data, x_eval, y_eval, cat_list, verbose_eval):
+    def __init__(self, conf, params, x_train, y_train, x_eval, y_eval, cat_list, verbose_eval):
         self.conf = conf
         self.params = params
-        self.train_data = train_data
-        self.eval_data = eval_data
+        #self.train_data = train_data
+        #self.eval_data = eval_data
+        self.x_train = x_train
+        self.y_train = y_train
         self.x_eval = x_eval
         self.y_eval = y_eval
         self.cat_list = cat_list
         self.verbose_eval = verbose_eval
 
     def __call__(self, trial):
+        train_data = lgbm.Dataset(
+            data=self.x_train,
+            label=self.y_train,
+            feature_name=conf.INPUT_DATA,
+        )
+
+        eval_data = lgbm.Dataset(
+            data=self.x_eval,
+            label=self.y_eval,
+            feature_name=conf.INPUT_DATA,
+            reference=train_data,
+        )
+
         #optuna用ハイパーパラメータの設定
         for k, v in self.conf.LGBM_OPTUNA_PARAM_DICT.items():
             if isinstance(v[0], int):
@@ -54,17 +69,18 @@ class Objective:
                 #floatの場合
                 self.params[k] = trial.suggest_float(k, v[0], v[1]) #suggest_float(name：str、low：float、high：float、*、step：Optional [float] = None)
 
+        self.params['categorical_feature'] = self.cat_list
+
         #パラメータ探索用学習
         model = lgbm.train(
                            params=self.params,
-                           train_set=self.train_data,
-                           valid_sets=[self.train_data, self.eval_data],
+                           train_set=train_data,
+                           valid_sets=[train_data, eval_data],
                            valid_names=['train', 'eval'],
                            #evals_result=evaluation_results,
                            #verbose_eval=1,  # イテレーション毎に学習結果出力
                            #early_stopping_rounds=conf.OTHER_PARAM_DICT['early_stopping_rounds'],
                            num_boost_round=conf.OTHER_PARAM_DICT['num_boost_round'],
-                           categorical_feature=self.cat_list,
                            callbacks=[lgbm.early_stopping(stopping_rounds=conf.OTHER_PARAM_DICT['early_stopping_rounds'],verbose=True),  # early_stopping用コールバック関数
                                        lgbm.log_evaluation(self.verbose_eval)]  # コマンドライン出力用コールバック関数
         )
@@ -128,7 +144,6 @@ class LgbmTrain():
         #self.params['verbosity'] = 1  # 1：Info, 0：Error(Warning), -1：Fatal
         self.params['verbose_eval'] = self.verbose_eval
         self.params['verbose'] = -1  # これを指定しないと`No further splits with positive gain, best gain: -inf`というWarningが表示される
-
 
         if conf.LEARNING_TYPE == "CATEGORY":
             self.params["num_classes"] = 3
@@ -276,7 +291,7 @@ class LgbmTrain():
 
     #optuna使用
     def do_train_optuna(self):
-        obj = Objective(conf, self.params, self.train_data, self.eval_data, self.x_eval, self.y_eval, self.cat_list, self.verbose_eval)
+        obj = Objective(conf, self.params, self.x_train, self.y_train, self.x_eval, self.y_eval, self.cat_list, self.verbose_eval)
         study = optuna.create_study(direction='minimize')  #directionのdefault:'minimize'
         study.optimize(
                         func = obj,
@@ -304,6 +319,8 @@ class LgbmTrain():
         for k,v in study.best_params.items():
             self.params[k] = v
 
+        self.params['categorical_feature'] = self.cat_list
+
         #一番良いパラメータでモデル作成
         model = lgbm.train(
             params= self.params,
@@ -314,7 +331,6 @@ class LgbmTrain():
             #verbose_eval=1,  # イテレーション毎に学習結果出力
             #early_stopping_rounds=conf.OTHER_PARAM_DICT['early_stopping_rounds'],
             num_boost_round=conf.OTHER_PARAM_DICT['num_boost_round'],
-            categorical_feature=self.cat_list,
             callbacks=[
                 lgbm.early_stopping(stopping_rounds=conf.OTHER_PARAM_DICT['early_stopping_rounds'], verbose=True),
                 # early_stopping用コールバック関数
@@ -328,6 +344,8 @@ class LgbmTrain():
     def do_train(self):
         conf = self.conf
 
+        self.params['categorical_feature'] = self.cat_list
+
         evaluation_results = {}  # 評価結果格納用
         model = lgbm.train(
             params=self.params,
@@ -338,7 +356,6 @@ class LgbmTrain():
             #verbose_eval=1,  # イテレーション毎に学習結果出力
             #early_stopping_rounds=conf.OTHER_PARAM_DICT['early_stopping_rounds'],
             num_boost_round=conf.OTHER_PARAM_DICT['num_boost_round'],
-            categorical_feature= self.cat_list,
             callbacks=[
                 lgbm.early_stopping(stopping_rounds=conf.OTHER_PARAM_DICT['early_stopping_rounds'], verbose=True),
                 # early_stopping用コールバック関数
@@ -355,6 +372,7 @@ class LgbmTrain():
 
         self.params['deterministic'] = True, #再現性確保用のパラメータ
         self.params['force_row_wise'] = True  #再現性確保用のパラメータ
+        self.params['categorical_feature'] = self.cat_list
 
         """
         LightGBMTunerのデフォルトの探索範囲
@@ -377,7 +395,6 @@ class LgbmTrain():
             verbose_eval=100,  # イテレーション毎に学習結果出力
             early_stopping_rounds= conf.OTHER_PARAM_DICT['early_stopping_rounds'],
             num_boost_round = conf.OTHER_PARAM_DICT['num_boost_round'],
-            categorical_feature=self.cat_list,
             optuna_seed=conf.LGBM_PARAM_DICT['seed'],  # 再現性確保用のパラメータ
         )
         #パラメータ探索
@@ -400,7 +417,6 @@ class LgbmTrain():
             #verbose_eval=1,  # イテレーション毎に学習結果出力
             #early_stopping_rounds=conf.OTHER_PARAM_DICT['early_stopping_rounds'],
             num_boost_round=conf.OTHER_PARAM_DICT['num_boost_round'],
-            categorical_feature=self.cat_list,
             callbacks=[
                 lgbm.early_stopping(stopping_rounds=conf.OTHER_PARAM_DICT['early_stopping_rounds'], verbose=True),
                 # early_stopping用コールバック関数
@@ -419,11 +435,16 @@ if __name__ == '__main__':
 
     output("FILE_PREFIX_DB", conf.FILE_PREFIX_DB)
 
+    #保存するファイルの接尾後をつけたい場合に設定する 例えば、fxtfのスプレッドを反映したテストデータを作りたい場合など"_fxtf-spread"と設定する
+    file_postscript = ""
+
+    #file_postscript = "_data-dukas_spread-0"
+
     #すでにlgbm_make_data.pyでデータが作成されている場合 なければ空文字
-    #train_data_load_path = "/db2/lgbm/" + conf.SYMBOL + "/train_file/TRAF17.pickle"
-    #test_data_load_path = "/db2/lgbm/" + conf.SYMBOL + "/test_file/TESF17.pickle"
-    train_data_load_path = ""
-    test_data_load_path = ""
+    train_data_load_path = "/db2/lgbm/" + conf.SYMBOL + "/train_file/TRAF324.pickle"
+    test_data_load_path = "/db2/lgbm/" + conf.SYMBOL + "/test_file/TESF412.pickle"
+    #train_data_load_path = ""
+    #test_data_load_path = ""
 
 
     print("test_data_load_path:",test_data_load_path)
@@ -446,18 +467,20 @@ if __name__ == '__main__':
     if test_data_load_path != "":
         with open(test_data_load_path, 'rb') as f:
             test_lmd = pickle.load(f)
+            file_score = test_data_load_path.split("TESF")[1].split(".")[0]
+            test_lmd.set_file_score(file_score)
     else:
         # evalデータ作成
         test_lmd = LgbmMakeData()
 
-        org_file_name = "MF203"
+        org_file_name = "MF277"
         org_file_path = "/db2/lgbm/" + conf.SYMBOL + get_lgbm_file_type(org_file_name) + org_file_name + ".pickle"
         print("test org_file_path:",org_file_path)
 
         target_spread_list = []
         test_lmd.make_data(conf, org_file_path, test_start, test_end, True, target_spread_list=target_spread_list)
 
-        test_lmd.save_data(conf, test_lmd, org_file_name, test_start, test_end, True, target_spread_list)
+        test_lmd.save_data(conf, test_lmd, org_file_name, test_start, test_end, True, target_spread_list, file_postscript=file_postscript)
 
         #学習時にさらに開始終了を絞り込まないようにNoneにする
         test_start = None
@@ -490,18 +513,20 @@ if __name__ == '__main__':
     if train_data_load_path != "":
         with open(train_data_load_path, 'rb') as f:
             train_lmd = pickle.load(f)
+            file_score = train_data_load_path.split("TRAF")[1].split(".")[0]
+            train_lmd.set_file_score(file_score)
     else:
         #trainデータ作成
         train_lmd = LgbmMakeData()
 
-        org_file_name = "MF191"
+        org_file_name = "MF276"
         org_file_path = "/db2/lgbm/" + conf.SYMBOL + get_lgbm_file_type(org_file_name) + org_file_name + ".pickle"
         print("train org_file_path:",org_file_path)
 
         target_spread_list = []
         train_lmd.make_data(conf, org_file_path, train_start, train_end, False, target_spread_list=target_spread_list)
 
-        train_lmd.save_data(conf, train_lmd, org_file_name, train_start, train_end, False, target_spread_list)
+        train_lmd.save_data(conf, train_lmd, org_file_name, train_start, train_end, False, target_spread_list, file_postscript=file_postscript)
 
         #学習時にさらに開始終了を絞り込まないようにNoneにする
         train_start = None
@@ -511,7 +536,16 @@ if __name__ == '__main__':
     start = time.time()
 
     # モデル番号付与
-    conf.numbering()
+    conf.numbering(train_lmd.get_file_score(), test_lmd.get_file_score())
+
+    #init_modelをフルパスで指定しなおす
+    if "init_model" in conf.LGBM_PARAM_DICT.keys():
+        old_model = conf.MODEL_DIR + conf.LGBM_PARAM_DICT["init_model"]
+        if os.path.exists(old_model):
+            conf.LGBM_PARAM_DICT["init_model"] = old_model
+        else:
+            print("init_model not exists:", old_model)
+            exit(1)
 
     lgbm_train = LgbmTrain(conf, test_lmd, train_lmd, train_start, train_end, test_start, test_end)
 

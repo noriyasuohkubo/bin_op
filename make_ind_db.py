@@ -71,15 +71,30 @@ oanda_poss = []
 # oanda_ords = [-10,-9,-8,-7,-6,-5,-4,-3,-2,-1,0,1,2,3,4,5,6,7,8,9,10]
 # oanda_poss = [-10,-9,-8,-7,-6,-5,-4,-3,-2,-1,0,1,2,3,4,5,6,7,8,9,10]
 
-ds = [1, 2, 3, 4, 5, 6, 7, 8, 9, ] + [i for i in range(10, 501, 10)]
+#ds = [1, 5, 60, 300, 900 ,3600]
+#ds = [1,] +[i for i in range(5, 501, 5)]
+ds = [1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 18, 22, 26, 30, 34, 38, 42, 50, 58,
+ 66, 74, 82, 90, 106, 122, 138, 154, 170, 186, 218, 250, 282, 314, 346, 378,
+ 442, 506, 570, 634, 698, 762, 890, 1018, 1146, 1274, 1402, 1530,
+ 1786, 2042, 2298, 2554, 2810, 3066, 3578, 4090, 4602, 5114, 5626, 6138,
+ 7162, 8186, 9210, 10234, 11258, 12282]
+m1_smas = [13, 60, 120,240,300,360,420,480,540,600,720,840,960,1080,1200,1320,1440,]
+
 #ds = [1, 2, 3, 4, 5, 6, 7, 8, 9, ] + [i for i in range(10, 101, 10)] + [i for i in range(160, 601, 60)] + [i for i in range(900, 7201, 300)]
 #ds = [i for i in range(510, 1001, 10)]
-subs = [1, 2, 3, 4, 5, 6, 7, 8, 9, ] + [i for i in range(10, 501, 10)]
+
+subs = [1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 18, 22, 26, 30, 34, 38, 42, 50, 58,
+ 66, 74, 82, 90, 106, 122, 138, 154, 170, 186, 218, 250, 282, 314, 346, 378,
+ 442, 506, 570, 634, 698, 762, 890, 1018, 1146, 1274, 1402, 1530,
+ 1786, 2042, 2298, 2554, 2810, 3066, 3578, 4090, 4602, 5114, 5626, 6138,
+ 7162, 8186, 9210, 10234, 11258, 12282]
 
 #satrs = [5]
 satrs = [i for i in range(5, 101, 5)]
 
-smas = [i for i in range(5, 101, 5)]
+#smas = [i for i in range(5, 101, 5)]
+smas = [5, 15, 30, 50, ]
+
 
 atrs = [i for i in range(5, 101, 5)]
 
@@ -439,11 +454,11 @@ def make_ssmam(mean_data):
     return return_list
 
 
-def make_d(close_data, ):
+def make_d(close_data, multi=10000 ):
     return_list = []
     for d in ds:
         d_bef = np.roll(close_data, d)
-        target = get_divide_arr(d_bef, close_data)
+        target = get_divide_arr(d_bef, close_data, multi=10000)
         target[:d] = None
         return_list.append(target.reshape(len(target), -1))
 
@@ -458,7 +473,7 @@ def make_d1(close_data):
     target[0] = None
     for d1 in d1s:
         target_tmp = np.roll(target, d1 - 1)
-        return_list.append(target.reshape(len(target_tmp), -1))
+        return_list.append(target_tmp.reshape(len(target_tmp), -1))
 
     return_list = np.concatenate(return_list, 1)
     return return_list
@@ -848,6 +863,56 @@ def make_oanda_pos(score_data, close_data, oanda_pos_dict, term):
 
     return return_list
 
+def make_m1_sma_d(score_data,close_data, org_db_no, start_stp, end_stp, term, type="ema"):
+    return_list = []
+
+    redis_db_m1 = redis.Redis(host='127.0.0.1', port=6379, db=org_db_no, decode_responses=True)
+    db_name = 'USDJPY_M1'
+
+    result_data = redis_db_m1.zrangebyscore(db_name, start_stp, end_stp, withscores=True)
+
+    m1_data = {}
+
+    for i, line in enumerate(result_data):
+        body = line[0]
+        score = line[1]
+        tmps = json.loads(body)
+        m1_data[score] = tmps
+
+    del result_data
+
+    cnt = 0
+    for sc, c in zip(score_data, close_data):
+        cnt += 1
+        #予想時のスコアが属する1分足の一つ前の1分足のSMAデータを取得
+        predict_score = get_decimal_add(sc, term)
+        predict_score_m1 = get_decimal_sub(predict_score, get_decimal_mod(predict_score, 60)) #予想時のスコアが属する1分足のスコア
+        target_score = get_decimal_sub(predict_score_m1, 60) #一つ前の1分足のスコア
+        m1 = m1_data.get(target_score)
+
+        tmp_return_list = []
+        for m in m1_smas:
+            if m1 == None:
+                tmp_return_list.append(None)
+            else:
+                if type == "sma":
+                    sma = m1.get("sma-" + str(m))
+                elif type == "ema":
+                    sma = m1.get("ema-" + str(m))
+                if sma == None:
+                    tmp_return_list.append(None)
+                else:
+                    #新たに今のレートを加えて移動平均を求め直す
+                    sma = get_decimal_divide(get_decimal_multi(sma, m) + c, m + 1)
+                    tmp_return_list.append(get_divide(float(sma),c))
+
+        return_list.append(tmp_return_list)
+
+        if cnt % 1000000 == 0:
+            print(datetime.now(), cnt)
+
+    return np.array(return_list)
+
 
 def make_dict_data(csv_dict, news):
     # timeは登録しない
@@ -861,10 +926,8 @@ def make_dict_data(csv_dict, news):
             csv_dict[tmp_col] = [news[tmp_col]]
 
 
-def make_ind_db(start, end, org_db_no, new_db_no, bet_term, term, symbol, org_db, new_db, mode, use_old_data):
+def make_ind_db(start, end, org_db_no, new_db_no, bet_term, term, symbol, org_db, new_db, mode, use_old_data, file_postscript, multi=10000):
     # symbol = "EURUSD"
-
-    db_source = "DUKA"  # DBの作成元データソース
 
     # bet_term = 2
 
@@ -1026,7 +1089,7 @@ def make_ind_db(start, end, org_db_no, new_db_no, bet_term, term, symbol, org_db
             oanda_pos_dict[score] = [tmps.get("wid"), tmps.get("data")]
 
     for db in db_list:
-        print(db)
+        print(datetime.now(), db)
 
         close_data, high_data, low_data = [], [], []
         mean_data = []
@@ -1040,23 +1103,22 @@ def make_ind_db(start, end, org_db_no, new_db_no, bet_term, term, symbol, org_db
             score = float(line[1])
             tmps = json.loads(body)
 
-            close_data.append(tmps.get("c"))
-            if term == 2:
-                high_data.append(tmps.get("c"))
-                low_data.append(tmps.get("c"))
-            else:
-                high_data.append(tmps.get("eh"))
-                low_data.append(tmps.get("el"))
-            mean_data.append(tmps.get("m"))
-            wmean_data.append(tmps.get("wm"))
+            close_data.append(float(tmps.get("c")))
+
+            #high_data.append(tmps.get("eh"))
+            #low_data.append(tmps.get("el"))
+
+            #mean_data.append(tmps.get("m"))
+            #wmean_data.append(tmps.get("wm"))
             score_data.append(score)
 
         close_data = np.array(close_data)
-        high_data = np.array(high_data)
-        low_data = np.array(low_data)
-        mean_data = np.array(mean_data)
-        wmean_data = np.array(wmean_data)
-        score_data = np.array(score_data)
+        #high_data = np.array(high_data)
+        #low_data = np.array(low_data)
+
+        #mean_data = np.array(mean_data)
+        #wmean_data = np.array(wmean_data)
+        #score_data = np.array(score_data)
 
         print("close_data length:", len(close_data))
 
@@ -1068,13 +1130,21 @@ def make_ind_db(start, end, org_db_no, new_db_no, bet_term, term, symbol, org_db
 
         dm_data = make_dm(mean_data)
         """
-        #d_data = make_d(close_data)
-        eh_data = make_d1(high_data)
-        el_data = make_d1(low_data)
-        #wm_data = make_d1(wmean_data)
+        d_data = make_d(close_data, multi=multi)
+        m1_sma_data = make_m1_sma_d(score_data,close_data, org_db_no, start_stp, end_stp, term, type="ema")
+
+
+        #eh_data = make_d1(high_data)
+        #el_data = make_d1(low_data)
+
         #m_data = make_d1(mean_data)
 
-        #sub_data = make_sub(close_data)
+        #sma_data = make_sma(close_data)
+
+        #wm_data = make_d1(wmean_data)
+
+
+        #sub_data = make_sub(close_data, multi=multi)
 
         #satr_data = make_satr(high_data, low_data, close_data)
         #smac_data = make_smac(close_data)
@@ -1135,7 +1205,8 @@ def make_ind_db(start, end, org_db_no, new_db_no, bet_term, term, symbol, org_db
 
         # DBに登録する
         cnt = 0
-        for line, eh, el in zip(result_data,  eh_data, el_data ):
+        regist_cnt = 0
+        for line, d, m1_sma in zip(result_data, d_data,m1_sma_data):
             # for line in result_data:
             cnt += 1
             body = line[0]
@@ -1191,8 +1262,6 @@ def make_ind_db(start, end, org_db_no, new_db_no, bet_term, term, symbol, org_db
             for i, tmp in enumerate(ds):
                 tmps[suffix + "md-" + str(tmp)] = md[i]
 
-
-
             for i, tmp in enumerate(ds):
                 tmps[suffix + "md-" + str(tmp)] = md[i]
 
@@ -1211,8 +1280,6 @@ def make_ind_db(start, end, org_db_no, new_db_no, bet_term, term, symbol, org_db
 
             for i, tmp in enumerate(wmams):
                 tmps[suffix + "wmam1-" + str(tmp)] = wmam[i]
-
-
 
             for i, tmp in enumerate(secs):
                 tmps[suffix + "smam" + str(tmp)] = smam_a[i]
@@ -1256,8 +1323,6 @@ def make_ind_db(start, end, org_db_no, new_db_no, bet_term, term, symbol, org_db
             for i, tmp in enumerate(satrs):
                 tmps[suffix + "satr-" + str(tmp)] = satr[i]
 
-            for i, tmp in enumerate(smas):
-                tmps[suffix + "smac-" + str(tmp)] = smac[i]
 
             for i, tmp in enumerate(atrs):
                 tmps[suffix + "atr-" + str(tmp)] = atr[i]   
@@ -1273,26 +1338,50 @@ def make_ind_db(start, end, org_db_no, new_db_no, bet_term, term, symbol, org_db
                            
             for i, highlow_col in enumerate(highlow_cols):
                 tmps[highlow_col] = highlow[i]
-                
-            for i, tmp in enumerate(subs):
-                tmps[suffix + "sub-" + str(tmp)] = sub[i]      
 
             for i, tmp in enumerate(d1s):
                 tmps[suffix + "md1-" + str(tmp)] = m[i]
 
             for i, tmp in enumerate(d1s):
                 tmps[suffix + "wmd1-" + str(tmp)] = wm[i]
-                
-            for i, tmp in enumerate(ds):
-                tmps[suffix + "d-" + str(tmp)] = d[i]
 
-            """
+            for i, tmp in enumerate(d1s):
+                tmps[suffix + "md1-" + str(tmp)] = m[i]
+                
+            for i, tmp in enumerate(d1s):
+                tmps[suffix + "md1-" + str(tmp)] = m[i]
+                    
+            for i, tmp in enumerate(smas):
+                tmps[suffix + "sma-" + str(tmp)] = sma[i]
+                
+                
             for i, tmp in enumerate(d1s):
                 tmps[suffix + "ehd1-" + str(tmp)] = eh[i]
 
             for i, tmp in enumerate(d1s):
                 tmps[suffix + "eld1-" + str(tmp)] = el[i]
+                
+            for i, tmp in enumerate(smas):
+                tmps[suffix + "sma-" + str(tmp)] = sma[i]        
+                
+            for i, tmp in enumerate(ds):
+                tmps[suffix + "d-" + str(tmp)] = d[i]  
+                  
+            for i, tmp in enumerate(subs):
+                tmps["diff_" + str(tmp)] = sub[i]
+                
 
+            """
+
+            #for i, tmp in enumerate(subs):
+            #    tmps["diff_" + str(tmp)] = sub[i]
+
+
+            for i, tmp in enumerate(ds):
+                tmps[suffix + "d-" + str(tmp)] = d[i]
+
+            for i, tmp in enumerate(m1_smas):
+                tmps[suffix + "ema-" + str(tmp)] = m1_sma[i]
 
             """
             if cnt < 30:
@@ -1495,14 +1584,18 @@ def make_ind_db(start, end, org_db_no, new_db_no, bet_term, term, symbol, org_db
             csv_regist_cols.append('score')
 
         df_dict = df_dict.sort_values('score', ascending=True)  # scoreの昇順　古い順にする
-        print(df_dict[:100])
-        print(df_dict[-100:])
+        for c in df_dict.columns.tolist():
+            print(c, df_dict[c].dtype)
+            #print(df_dict[c].values[:100])
+            if df_dict[c].dtype == "object":
+                print("dtype object exists!")
+                exit(1)
+
         input_name = list_to_str(csv_regist_cols, "@")
         end_tmp = end + timedelta(days=-1)
 
         tmp_file_name = symbol + "_B" + str(bet_term) + "_IN-" + input_name + "_" + \
-                        date_to_str(start, format='%Y%m%d') + "-" + date_to_str(end_tmp,
-                                                                                format='%Y%m%d') + "_" + socket.gethostname() + "_" + db_source
+                        date_to_str(start, format='%Y%m%d') + "-" + date_to_str(end_tmp, format='%Y%m%d') + "_MULTI-" + str(multi) + "_" + socket.gethostname()  + file_postscript
         db_name_file = "INPUT_FILE_NO_" + symbol
         # win2のDBを参照してモデルのナンバリングを行う
         r = redis.Redis(host='192.168.1.114', port=6379, db=1, decode_responses=True)
@@ -1544,6 +1637,8 @@ def make_ind_db(start, end, org_db_no, new_db_no, bet_term, term, symbol, org_db
         for col in csv_regist_cols:
             if col != 'o' and ("hor" in col) and ("hl" in col) == False:
                 tmp_dict[col] = 'float32'
+        tmp_dict["score"] = 'float64'
+
         # 型変換
         df_dict = df_dict.astype(tmp_dict, copy=False)
         print(df_dict.info)
@@ -1559,6 +1654,8 @@ def make_ind_db(start, end, org_db_no, new_db_no, bet_term, term, symbol, org_db
 
 
 if __name__ == '__main__':
+    #csv,pickleファイル名の末尾につける
+    file_postscript = "_DUKA"
 
     # start, end, org_db_no, new_db_no, bet_term, term(抽出元のレコード間隔秒数), symbol, org_db, new_db, mode, use_old_dataをリストで保持させる
     # mode
@@ -1568,44 +1665,36 @@ if __name__ == '__main__':
     # use_old_data: true or false
     # mode=csv or new-csv の場合にDBの既存データを使用してCSV出力する場合
     dates = [
-        #[datetime(2024, 6, 30), datetime(2024, 8, 10), 2, 2, 2, 10, 'USDJPY', 'localhost', 'localhost', 'normal', True],
-        #[datetime(2024, 6, 30), datetime(2024, 8, 10), 2, 2, 2, 60, 'USDJPY', 'localhost', 'localhost', 'normal', True],
-        #[datetime(2024, 6, 30), datetime(2024, 8, 10), 2, 2, 2, 300, 'USDJPY', 'localhost', 'localhost', 'normal', True],
 
-        [datetime(2024, 2, 1), datetime(2024, 8, 10), 2, 2, 2, 10, 'USDJPY', 'localhost', 'localhost', 'normal', True],
-        [datetime(2024, 2, 1), datetime(2024, 8, 10), 2, 2, 2, 60, 'USDJPY', 'localhost', 'localhost', 'normal', True],
-        [datetime(2024, 2, 1), datetime(2024, 8, 10), 2, 2, 2, 300, 'USDJPY', 'localhost', 'localhost', 'normal', True],
+        #[datetime(2024, 12, 1), datetime(2026, 5, 2), 1, 1, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
 
-        #[datetime(2022, 1, 1), datetime(2023, 4, 1), 3, 3, 1, 5, 'USDJPY', 'localhost', 'localhost', 'normal', True],
-        #[datetime(2022, 1, 1), datetime(2023, 4, 1), 3, 3, 1, 30, 'USDJPY', 'localhost', 'localhost', 'normal', True],
 
-        #[datetime(2024, 5, 5), datetime(2024, 6, 30), 2, 2, 2, 2, 'USDJPY', 'localhost', 'localhost', 'csv', False],
 
-        #[datetime(2024, 6, 30), datetime(2024, 8, 10), 2, 2, 2, 2, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2023, 1, 1), datetime(2023, 4, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2022, 1, 1), datetime(2023, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2021, 1, 1), datetime(2022, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2020, 1, 1), datetime(2021, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2019, 1, 1), datetime(2020, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2018, 1, 1), datetime(2019, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2017, 1, 1), datetime(2018, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2016, 1, 1), datetime(2017, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2015, 1, 1), datetime(2016, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2014, 1, 1), datetime(2015, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2013, 1, 1), datetime(2014, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2012, 1, 1), datetime(2013, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2011, 1, 1), datetime(2012, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2010, 1, 1), datetime(2011, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2009, 1, 1), datetime(2010, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2008, 1, 1), datetime(2009, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2007, 1, 1), datetime(2008, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2006, 1, 1), datetime(2007, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2005, 1, 1), datetime(2006, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
-        #[datetime(2004, 1, 1), datetime(2005, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False],
+        [datetime(2024, 1, 1), datetime(2024, 12, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        [datetime(2023, 1, 1), datetime(2024, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        [datetime(2022, 1, 1), datetime(2023, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        [datetime(2021, 1, 1), datetime(2022, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        [datetime(2020, 1, 1), datetime(2021, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        [datetime(2019, 1, 1), datetime(2020, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        [datetime(2018, 1, 1), datetime(2019, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        [datetime(2017, 1, 1), datetime(2018, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        [datetime(2016, 1, 1), datetime(2017, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        [datetime(2015, 1, 1), datetime(2016, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        [datetime(2014, 1, 1), datetime(2015, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        [datetime(2013, 1, 1), datetime(2014, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        [datetime(2012, 1, 1), datetime(2013, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        [datetime(2011, 1, 1), datetime(2012, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        [datetime(2010, 1, 1), datetime(2011, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        #[datetime(2009, 1, 1), datetime(2010, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        #[datetime(2008, 1, 1), datetime(2009, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        #[datetime(2007, 1, 1), datetime(2008, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        #[datetime(2006, 1, 1), datetime(2007, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        #[datetime(2005, 1, 1), datetime(2006, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
+        #[datetime(2004, 1, 1), datetime(2005, 1, 1), 3, 3, 1, 1, 'USDJPY', 'localhost', 'localhost', 'csv', False, 10000],
     ]
 
-    for start, end, org_db_no, new_db_no, bet_term, term, symbol, org_db, new_db, mode, use_old_data in dates:
-        make_ind_db(start, end, org_db_no, new_db_no, bet_term, term, symbol, org_db, new_db, mode, use_old_data)
+    for start, end, org_db_no, new_db_no, bet_term, term, symbol, org_db, new_db, mode, use_old_data, multi in dates:
+        make_ind_db(start, end, org_db_no, new_db_no, bet_term, term, symbol, org_db, new_db, mode, use_old_data, file_postscript, multi)
 
     # 終わったらメールで知らせる
     mail.send_message(host, ": make_ind_db finished!!!")

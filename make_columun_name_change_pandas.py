@@ -4,7 +4,7 @@ import os
 
 import psutil
 import redis
-import datetime
+from datetime import  datetime
 import time
 import gc
 import math
@@ -22,8 +22,8 @@ lgbm用のpandasデータの型を変更する
 print("START")
 start_time = time.perf_counter()
 
-startDt = datetime(2017, 1, 1)
-endDt = datetime(2023, 9, 3)
+startDt = datetime(2024, 12, 1)
+endDt = datetime(2026, 5, 2)
 #startDt = datetime(2016, 1, 1)
 #endDt = datetime(2023, 7, 29)
 start_score = int(time.mktime(startDt.timetuple()))
@@ -32,12 +32,12 @@ end_score = int(time.mktime(endDt.timetuple()))
 end_tmp = endDt + timedelta(days=-1)
 
 symbol = "USDJPY"
-bet_term = 2
-data_term = 2
+bet_term = 1
+data_term = 1
 
 #leftのファイルを基本とする
-df_file = "CF37"
-df_file_path = "/db2/lgbm/" + symbol + "/concat_file/" + df_file + ".pickle"
+df_file = "IF332"
+df_file_path = "/db2/lgbm/" + symbol + "/input_file/" + df_file + ".pickle"
 
 #ファイル読み込み
 with open(df_file_path, 'rb') as f:
@@ -54,7 +54,7 @@ with open(df_file_path, 'rb') as f:
 col_name_org = df.columns.tolist()
 col_name_new = {}
 for col in col_name_org:
-    col_name_new[col] = col.replace('"', '')
+    col_name_new[col] = col.replace('1-', '')
 
 df = df.rename(columns=col_name_new)
 

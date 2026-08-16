@@ -13,6 +13,7 @@ import math
 import sys
 from util import  get_decimal_add, get_decimal_sub,get_decimal_multi,get_decimal_divide,get_decimal_mod, omit_zero_point_str
 import  send_mail as mail
+from util import *
 
 """
 make_close_dbで作成した2秒間隔のレコードを任意の間隔に拡張しなおす。
@@ -21,8 +22,8 @@ make_close_dbで作成した2秒間隔のレコードを任意の間隔に拡張
 変更間隔が1分なら00:00:00のレコードの場合00:00:55のレコードの終値を登録することになる
 
 """
-start_day = "2024/02/01 00:00:00" #この時間含む(以上)
-end_day = "2024/08/10 00:00:00"  # この時間含めない(未満) 終了日は月から金としなけらばならない
+start_day = "2009/12/01 00:00:00" #この時間含む(以上)
+end_day = "2024/12/01 00:00:00"  # この時間含めない(未満) 終了日は月から金としなけらばならない
 
 
 start_day_dt = datetime.strptime(start_day, '%Y/%m/%d %H:%M:%S')
@@ -38,22 +39,22 @@ if start_day_dt >= end_day_dt:
     exit()
 
 #変更する間隔(sec)
-terms = [2]
-
+terms = [3600*4]
+shift_list = [0] #特定のシフトのみ作成する場合、1時間足や日足など0を指定する empty list:設定なし
 
 #DBのもとのレコード秒間隔
-org_term = 1
+org_term = 3600
 
-bet_term = 2
+bet_term = 3600
 
-highlow_flg = False
+highlow_flg = True
 
 ask_bid_flg = False
 
 #closeからhigh lowを求める
 easy_highlow_flg = False
 
-div_flg = True
+div_flg = False
 
 #平均を取得する
 #直近のデータから数えて幾つ分を計算するかリストに保持 すべての平均を取る場合は0
@@ -74,7 +75,7 @@ math_log = False
 close_flg = True
 
 #spreadの値をdbレコードに含める
-spread_flg = True
+spread_flg = False
 
 tick_flg = False
 
@@ -82,14 +83,17 @@ jpy_flg = False
 
 sp_flg = False
 
-db_no_old = 2
-db_no_new = 2
+db_no_old = 3
+db_no_new = 3
 
 #取得元DB
 symbol = "USDJPY"
-db_name_old = symbol
+#symbol = "EURUSD"
+
+#db_name_old = symbol
+db_name_old = symbol + "_H1"
+#db_name_old = symbol + "_3"
 #db_name_old = symbol + "_1_0"
-#db_name_old = symbol + "_2_0_TICK"
 
 redis_db_old = redis.Redis(host='localhost', port=6379, db=db_no_old, decode_responses=True)
 redis_db_new = redis.Redis(host='localhost', port=6379, db=db_no_new, decode_responses=True)
@@ -102,17 +106,6 @@ def get_wma(value):
 
     return wma
 
-def get_divide(bef, aft):
-    divide = aft / bef
-    if aft == bef:
-        divide = 1
-
-    if math_log:
-        divide = 10000 * math.log(divide, math.e * 0.1)
-    else:
-        divide = 10000 * (divide - 1)
-
-    return divide
 
 def convert():
     # 処理時間計測
@@ -147,8 +140,8 @@ def convert():
         if volume_flg == True:
             val_dict["v"] = tmps.get("v")
         if highlow_flg == True:
-            val_dict["h"] = tmps.get("high")
-            val_dict["l"] = tmps.get("low")
+            val_dict["h"] = tmps.get("h")
+            val_dict["l"] = tmps.get("l")
 
             if ask_bid_flg:
                 val_dict["ah"] = tmps.get("ah")
@@ -174,189 +167,189 @@ def convert():
         score_index[score] = i
 
     del result_data
+    cnt = 0
+    for j, val in enumerate(lists):
+        cnt += 1
+        # t_val = val["t_val"]
+        score = val["sc"]
 
-    for term in terms:
-        # 1分間隔でつくるとして15なら00:01:15 00:02:15 00:03:15と位相をずらす
-        shift_list = []
-        for i in range(int(get_decimal_divide(term, bet_term))):
-            shift_list.append(get_decimal_sub(term, get_decimal_multi((i + 1), bet_term)))
+        if get_decimal_mod(score, bet_term) != 0.0:
+            continue
 
-        print(shift_list)
+        #1つ前のレコード
+        if get_decimal_sub(score, org_term) in score_index:
+            tmp_idx = score_index[get_decimal_sub(score, org_term)]
+            prev = lists[tmp_idx]
+        else:
+            continue
+            #なければとばす
 
-        for shift in shift_list:
-            cnt = 0
-            #shiftが.0の場合は小数点を省く
-            db_name_new = symbol + "_" + str(term) + "_" + omit_zero_point_str(shift)
+        for term in terms:
+
+            now_shift = get_decimal_mod(score, term)
+            if len(shift_list) != 0 and (now_shift in shift_list) == False:
+                continue
+
+            # shiftが.0の場合は小数点を省く
+            db_name_new = symbol + "_" + str(term) + "_" + omit_zero_point_str(now_shift)
 
             if tick_flg:
                 db_name_new = db_name_new + "_TICK"
 
-            print("shift:", shift)
+            #自分より後ろの必要なデータの長さ
+            #need_len = int(Decimal(str(term)) / Decimal(str(org_term))) - 1
+            need_len = int(get_decimal_divide(term, org_term)) - 1
 
-            #for score, val in lists.items():
-            for j, val in enumerate(lists):
-                cnt += 1
-                #t_val = val["t_val"]
-                score = val["sc"]
-                #間隔に当たっていたら2秒まえのレコードを取得
-                # cdを計算するため
-                #if t_val % term == shift:
-                if get_decimal_mod(score, term) == shift:
-                    #自分より後ろの必要なデータの長さ
-                    #need_len = int(Decimal(str(term)) / Decimal(str(org_term))) - 1
-                    need_len = int(get_decimal_divide(term, org_term)) - 1
-                    #2秒前のレコード
-                    if get_decimal_sub(score, org_term) in score_index:
-                        tmp_idx = score_index[get_decimal_sub(score, org_term)]
-                        prev = lists[tmp_idx]
-                    else:
-                        continue
-                        #なければとばす
+            #後ろのデータがあるときだけ登録
+            if get_decimal_add(score, get_decimal_sub(term, org_term)) in score_index:
+                tmp_idx = score_index[get_decimal_add(score, get_decimal_sub(term, org_term))]
+                after = lists[tmp_idx]
+                start_idx = val["idx"]
+                end_idx = after["idx"]
 
-                    if get_decimal_add(score, get_decimal_sub(term, org_term)) in score_index:
-                        tmp_idx = score_index[get_decimal_add(score, get_decimal_sub(term, org_term))]
-                        after = lists[tmp_idx]
-                        start_idx = val["idx"]
-                        end_idx = after["idx"]
+                if len(shift_list) == 0 and end_idx - start_idx !=  need_len:
+                    #データが続いていなければとばす
+                    #日足などの作成でshift_listを使用する場合はデータが続いていなくともOKとする
+                    continue
 
-                        if end_idx - start_idx !=  need_len:
-                            #データが続いていなければとばす
-                            continue
+                child = {#'c': after["c"],
+                         'sc': score
+                         }
 
-                        child = {#'c': after["c"],
-                                 'sc': score
-                                 }
+                if div_flg == True:
+                    child["d1"] = get_divide(prev["c"], after["c"])
+                    if ask_bid_flg:
+                        child["ad-1"] = get_divide(prev["ac"], after["ac"])
+                        child["bd-1"] = get_divide(prev["bc"], after["bc"])
 
-                        if div_flg == True:
-                            child["d1"] = get_divide(prev["c"], after["c"])
+                if spread_flg == True:
+                    #もしスプレッドがNoneなら0をいれておく(dukaデータ用)
+                    child["s"] = after.get("s") if after.get("s") != None else 0
+
+                if close_flg == True:
+                    child["c"] = after["c"]
+                    if ask_bid_flg:
+                        child["ac"] = after["ac"]
+                        child["bc"] = after["bc"]
+
+                if jpy_flg == True:
+                    child["jpy"] = after["jpy"]
+
+                if sp_flg == True:
+                    child["sp"] = after["sp"]
+
+                if volume_flg or highlow_flg or tick_flg or len(means) != 0 or len(wmeans) != 0 or easy_highlow_flg:
+                    #後ろのデータを集める
+                    aft_data = lists[start_idx:end_idx+1]
+                    #for j in range(need_len + 1):
+                    #    aft_data.append(lists[score + (j * org_term)])
+                    c_list = []
+                    for aft in aft_data:
+                        c_list.append(aft["c"])
+
+                    if highlow_flg:
+                        high_list = []
+                        low_list = []
+
+                        ask_high_list = []
+                        ask_low_list = []
+                        bid_high_list = []
+                        bid_low_list = []
+
+                        for aft in aft_data:
+                            high_list.append(aft["h"])
+                            low_list.append(aft["l"])
+
                             if ask_bid_flg:
-                                child["ad-1"] = get_divide(prev["ac"], after["ac"])
-                                child["bd-1"] = get_divide(prev["bc"], after["bc"])
+                                ask_high_list.append(aft["ah"])
+                                ask_low_list.append(aft["al"])
+                                bid_high_list.append(aft["bh"])
+                                bid_low_list.append(aft["bl"])
 
-                        if spread_flg == True:
-                            #もしスプレッドがNoneなら0をいれておく(dukaデータ用)
-                            child["s"] = after.get("s") if after.get("s") != None else 0
+                        child["h"] = max(high_list)
+                        child["l"] = min(low_list)
 
-                        if close_flg == True:
-                            child["c"] = after["c"]
-                            if ask_bid_flg:
-                                child["ac"] = after["ac"]
-                                child["bc"] = after["bc"]
+                        if ask_bid_flg:
+                            child["ah"] = max(ask_high_list)
+                            child["al"] = min(ask_low_list)
+                            child["bh"] = max(bid_high_list)
+                            child["bl"] = min(bid_low_list)
 
-                        if jpy_flg == True:
-                            child["jpy"] = after["jpy"]
+                    if len(means) != 0:
+                        for m in means:
+                            if m == 0:
+                                child["m"] = np.mean(np.array(c_list))
+                            else:
+                                child["m" + str(m)] = np.mean(np.array(c_list[(-1 * m) : ]))
 
-                        if sp_flg == True:
-                            child["sp"] = after["sp"]
-
-                        if volume_flg or highlow_flg or tick_flg or len(means) != 0 or len(wmeans) != 0 or easy_highlow_flg:
-                            #後ろのデータを集める
-                            aft_data = lists[start_idx:end_idx+1]
-                            #for j in range(need_len + 1):
-                            #    aft_data.append(lists[score + (j * org_term)])
-                            c_list = []
-                            for aft in aft_data:
-                                c_list.append(aft["c"])
-
-                            if highlow_flg:
-                                high_list = []
-                                low_list = []
-
-                                ask_high_list = []
-                                ask_low_list = []
-                                bid_high_list = []
-                                bid_low_list = []
-
-                                for aft in aft_data:
-                                    high_list.append(aft["h"])
-                                    low_list.append(aft["l"])
-
-                                    if ask_bid_flg:
-                                        ask_high_list.append(aft["ah"])
-                                        ask_low_list.append(aft["al"])
-                                        bid_high_list.append(aft["bh"])
-                                        bid_low_list.append(aft["bl"])
-
-                                child["h"] = max(high_list)
-                                child["l"] = min(low_list)
-
-                                if ask_bid_flg:
-                                    child["ah"] = max(ask_high_list)
-                                    child["al"] = min(ask_low_list)
-                                    child["bh"] = max(bid_high_list)
-                                    child["bl"] = min(bid_low_list)
-
-                            if len(means) != 0:
-                                for m in means:
-                                    if m == 0:
-                                        child["m"] = np.mean(np.array(c_list))
-                                    else:
-                                        child["m" + str(m)] = np.mean(np.array(c_list[(-1 * m) : ]))
-
-                            if len(wmeans) != 0:
-                                for m in wmeans:
-                                    if m == 0:
-                                        child["wm"] = get_wma(np.array(c_list))
-                                    else:
-                                        child["wm" + str(m)] = get_wma(np.array(c_list[(-1 * m) : ]))
+                    if len(wmeans) != 0:
+                        for m in wmeans:
+                            if m == 0:
+                                child["wm"] = get_wma(np.array(c_list))
+                            else:
+                                child["wm" + str(m)] = get_wma(np.array(c_list[(-1 * m) : ]))
 
 
-                            if easy_highlow_flg:
-                                child["eh"] = np.max(np.array(c_list))
-                                child["el"] = np.min(np.array(c_list))
+                    if easy_highlow_flg:
+                        child["eh"] = np.max(np.array(c_list))
+                        child["el"] = np.min(np.array(c_list))
 
-                            if volume_flg:
-                                v_sum = 0
-                                for aft in aft_data:
-                                    v_sum += int(aft["v"])
-                                child["v"] = v_sum
+                    if volume_flg:
+                        v_sum = 0
+                        for aft in aft_data:
+                            v_sum += int(aft["v"])
+                        child["v"] = v_sum
 
-                            if tick_flg:
-                                tmp_tk = []
-                                # 自分よりあとのデータを集めていく
-                                for aft in aft_data:
-                                    if aft.get("tk") != None:
-                                        tmp_tk.extend(aft.get("tk").split(","))
+                    if tick_flg:
+                        tmp_tk = []
+                        # 自分よりあとのデータを集めていく
+                        for aft in aft_data:
+                            if aft.get("tk") != None:
+                                tmp_tk.extend(aft.get("tk").split(","))
 
-                                tmp_tk_str = ""
-                                for i, t in enumerate(tmp_tk):
-                                    if tmp_tk_str == "":
-                                        tmp_tk_str = t
-                                    else:
-                                        if t != tmp_tk[i - 1]:  # 前のティックと異なる場合のみ登録　メモリ節約
-                                            tmp_tk_str = tmp_tk_str + "," + t
+                        tmp_tk_str = ""
+                        for i, t in enumerate(tmp_tk):
+                            if tmp_tk_str == "":
+                                tmp_tk_str = t
+                            else:
+                                if t != tmp_tk[i - 1]:  # 前のティックと異なる場合のみ登録　メモリ節約
+                                    tmp_tk_str = tmp_tk_str + "," + t
 
-                                #tkデータがない場合(dukaデータ用)
-                                if tmp_tk_str == "":
-                                    child["tk"] = str(child["c"]) + ":0"
-                                else:
-                                    child["tk"] = tmp_tk_str
+                        #tkデータがない場合(dukaデータ用)
+                        if tmp_tk_str == "":
+                            child["tk"] = str(child["c"]) + ":0"
+                        else:
+                            child["tk"] = tmp_tk_str
 
-                        """
-                        #既存レコードがあるばあい、削除して追加
-                        tmp_val = redis_db_new.zrangebyscore(db_name_new, score, score)
-                        if len(tmp_val) >= 1:
-                            rm_cnt = redis_db_new.zremrangebyscore(db_name_new, score, score)  # 削除した件数取得
-                            if rm_cnt != 1:
-                                # 削除できなかったらおかしいのでエラーとする
-                                print("cannot remove!!!", score)
-                                exit()
-                        """
-                        ret = redis_db_new.zadd(db_name_new, json.dumps(child), score)
+                """
+                #既存レコードがあるばあい、削除して追加
+                tmp_val = redis_db_new.zrangebyscore(db_name_new, score, score)
+                if len(tmp_val) >= 1:
+                    rm_cnt = redis_db_new.zremrangebyscore(db_name_new, score, score)  # 削除した件数取得
+                    if rm_cnt != 1:
+                        # 削除できなかったらおかしいのでエラーとする
+                        print("cannot remove!!!", score)
+                        exit()
+                """
+                ret = redis_db_new.zadd(db_name_new, json.dumps(child), score)
 
-                    else:
-                        continue
+            else:
+                continue
 
-                if cnt % 10000000 == 0:
-                    dt_now = datetime.now()
-                    print(dt_now, " ", cnt)
+        if cnt % 10000000 == 0:
+            dt_now = datetime.now()
+            print(dt_now, " ", cnt)
 
     t2 = time.time()
     elapsed_time = t2-t1
     print("経過時間：" + str(elapsed_time))
 
 if __name__ == "__main__":
-    convert()
+    try:
+        convert()
+    except Exception as e:
+        print(tracebackPrint(e))
+        mail.send_message("term_convert error!!!")
 
     #redis_db_new.save()
 

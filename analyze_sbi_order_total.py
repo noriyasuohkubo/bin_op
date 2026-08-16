@@ -10,54 +10,25 @@ import numpy as np
 from util import *
 
 """
-thinkmarketsの発注履歴から勝率と平均獲得pipsを算出する
+SBI FXの発注履歴から勝率と平均獲得pipsを算出する
 """
 
-"""
-取引履歴
-USDJPY
-5/27.28.29 win5(母) amt 30000
-5/30.31 win3(自分) amt 30000
-6/3 win3(自分) amt 40000
-6/4 win3(自分) amt 50000
-6/5 win3(自分) amt 60000
-6/6 win3(自分) amt 70000
-6/7 win3(自分) amt 80000
-6/10 win3(自分) amt 90000
-6/11,12 win3(自分) amt 99000
-
-EURUSD
-5/27.28.29 win3(自分) amt 30000
-5/30.31 win5(母) amt 30000
-6/3,4,5,6,7 win5(母) amt 30000
-"""
-
-
-symbol = "USDJPY"
-#symbol = "EURUSD"
-#except_hours = [16,17,18,19,]
 except_hours = []
 
-
 #DB情報
-db_name = symbol + "_TM_ORDER"
-db_name_history = symbol + "_TM_HISTORY"
+db_name_order = "USDJPY_4_SBI_ORDER"
+db_name_history = "USDJPY_4_SBI_HISTORY"
 
 db_no = 8
-if symbol == "USDJPY":
-    host = "win8"
-elif symbol == "EURUSD":
-    host = "win3" #win5
+host = "192.168.1.115" #win4
 
-pip = 0.001 if symbol == "USDJPY" else 0.00001
+pip = 0.001
 
-#レコード削除対象期間
-#start = datetime(2024, 6, 30, 23)
-start = datetime(2024, 8, 12, 23 )
-#start = datetime(2024, 3, 12, 12)
+#レコード対象期間
+start = datetime(2025, 6, 30,  23)
 start_stp = int(time.mktime(start.timetuple()))
 
-end = datetime(2024, 8, 13, 23)
+end = datetime(2025, 7, 31, 23)
 end_stp = int(time.mktime(end.timetuple()))
 
 redis_db = redis.Redis(host=host, port=6379, db=db_no, decode_responses=True)
@@ -65,36 +36,36 @@ redis_db = redis.Redis(host=host, port=6379, db=db_no, decode_responses=True)
 #先に取引履歴DBを取得
 result_data_history = redis_db.zrangebyscore(db_name_history, start_stp, end_stp, withscores=True)
 
-#open_scoreとstoplossをキーとして辞書作成
-#print("history_cnt:", len(result_data_history))
 
 history_dict = {}
 history_pips_list = []
 history_win_cnt = 0
 history_lose_cnt = 0
 
+"""
+{
+  "order_score": 1738748596,
+  "deal_score": 1738748602,
+  "order_type": 0,
+  "start_rate": 152.7077,
+  "end_rate": 152.6861
+}
+"""
 for i, v in enumerate(result_data_history):
     body = v[0]
     score = v[1]
     tmps = json.loads(body)
 
-    open_rate = float(tmps.get("open_rate"))
-    close_rate = float(tmps.get("close_rate"))
+    open_rate = float(tmps.get("start_rate"))
+    close_rate = float(tmps.get("end_rate"))
 
-    stoploss_rate = tmps.get("stoploss_rate")
-    try:
-        stoploss_rate = float(stoploss_rate)
-    except Exception as e:
-        #stoploss_rateが空の場合はとばす
-        continue
+    open_score = int(tmps.get("order_score"))
+    close_score = int(tmps.get("deal_score"))
 
-    open_score = int(tmps.get("open_score"))
-    close_score = int(tmps.get("close_score"))
-
-    bet_type = tmps.get("bet_type")
+    bet_type = int(tmps.get("order_type"))
 
     pips = close_rate - open_rate
-    if bet_type == "sell":
+    if bet_type == 2:
         pips = pips * -1
 
     history_pips_list.append(pips)
@@ -104,7 +75,6 @@ for i, v in enumerate(result_data_history):
     elif pips < 0:
         history_lose_cnt += 1
 
-    #key = str(open_score) + "_" + str(stoploss_rate)
     key = str(open_score)
 
     tmp_dict = {
@@ -122,11 +92,11 @@ if len(history_dict) != 0:
     print("history_win_cnt:", history_win_cnt)
     print("history_lose_cnt:", history_lose_cnt)
     print("history_avg pips:", np.average(np.array(history_pips_list)))
+    print("history_sum pips:", np.sum(np.array(history_pips_list)))
 
-result_data = redis_db.zrangebyscore(db_name, start_stp, end_stp, withscores=True)
+result_data = redis_db.zrangebyscore(db_name_order, start_stp, end_stp, withscores=True)
 
 trade_cnt = len(result_data)
-
 
 pips_list = [] #発注時のレートで約定したと仮定した場合の利益
 pips_real_list = [] #実際約定したレートでの利益
@@ -148,6 +118,7 @@ delay_start_order_dict={}
 delay_end_order_dict={}
 hour_order_dict = {}
 
+open_spread_dict = {}
 close_spread_dict = {}
 
 history_match_cnt = 0
@@ -169,24 +140,11 @@ for i, v in enumerate(result_data):
     probe = float(tmps.get("probe"))
 
     start_rate = float(tmps.get("start_rate"))
-    start_rate_tm = float(tmps.get("start_rate_tm"))
+    start_rate_tm = float(tmps.get("start_rate_sbi"))
     end_rate = float(tmps.get("end_rate"))
 
-    stoploss = float(tmps.get("stoploss"))
-
-    try:
-        #以下２つの項目は後から足したので入っていない場合はスプレッド0として処理する
-        open_spread = tmps.get("open_spread")
-        close_spread = tmps.get("close_spread")
-        if open_spread < 1:
-            #以前は0.1のような形でDB登録していたのでその場合は10倍する
-            open_spread = get_decimal_multi(open_spread, 10)
-        if close_spread < 1:
-            #以前は0.1のような形でDB登録していたのでその場合は10倍する
-            close_spread = get_decimal_multi(close_spread, 10)
-    except Exception as e:
-        open_spread = 0
-        close_spread = 0
+    open_spread = tmps.get("open_spread")
+    close_spread = tmps.get("close_spread")
 
     o_spread = get_decimal_divide(open_spread, 2)
     c_spread = get_decimal_divide(close_spread, 2)
@@ -200,14 +158,6 @@ for i, v in enumerate(result_data):
         end_rate = get_decimal_add(end_rate, pip * c_spread)
         pips = start_rate - end_rate
 
-
-    """
-    pips_real = end_rate - start_rate_tm
-    if sign == 2:
-        pips_real = pips_real * -1
-    """
-
-    #key = str(position_score) + "_" + str(stoploss)
     key = str(position_score)
 
     if key in history_dict.keys():
@@ -217,6 +167,11 @@ for i, v in enumerate(result_data):
         end_rate_tm = tmp_dict["close_rate"]
         close_score = tmp_dict["close_score"]
         pips_real = tmp_dict["pips"]
+
+        if open_spread in open_spread_dict.keys():
+            open_spread_dict[open_spread] += 1
+        else:
+            open_spread_dict[open_spread] = 1
 
         if close_spread in close_spread_dict.keys():
             close_spread_dict[close_spread] += 1
@@ -299,12 +254,36 @@ for i, v in enumerate(result_data):
             hour_order_dict[hour] = [order_dict]
 
 print("order_cnt:", trade_cnt)
+print("")
+print("open_spread")
+total_open_spread = 0
+total_open_spread_cnt = 0
+for k,v in open_spread_dict.items():
+    print("spread:",k, " 件数:",v, " %", v/history_match_cnt*100)
+    total_open_spread = total_open_spread + int(get_decimal_multi(k, v))
+    total_open_spread_cnt = total_open_spread_cnt + v
 
+if total_open_spread_cnt != 0:
+    print("avg open_spread:", total_open_spread/total_open_spread_cnt)
 
+print("")
 print("close_spread")
+total_close_spread = 0
+total_close_spread_cnt = 0
 for k,v in close_spread_dict.items():
     print("spread:",k, " 件数:",v, " %", v/history_match_cnt*100)
+    total_close_spread = total_close_spread + int(get_decimal_multi(k, v))
+    total_close_spread_cnt = total_close_spread_cnt + v
 
+if total_close_spread_cnt != 0:
+    print("avg close_spread:", total_close_spread/total_close_spread_cnt)
+
+print("")
+
+if total_open_spread_cnt != 0 and total_close_spread_cnt != 0:
+    print("avg spread:", (total_open_spread + total_close_spread)/(total_open_spread_cnt + total_close_spread_cnt))
+
+print("")
 print("全体")
 print("history_match_cnt:", history_match_cnt)
 print("")
@@ -396,193 +375,3 @@ for prb, order_list in probe_order_dict_sorted:
     print("avg delay start:", np.average(np.array(delay_start_list)))
     print("avg delay end:", np.average(np.array(delay_end_list)))
 
-
-#時間毎の統計
-hour_order_dict_sorted = sorted(hour_order_dict.items())
-print("")
-print("時間毎の統計")
-print("")
-
-for h, order_list in hour_order_dict_sorted:
-
-    pips_list = []
-    pips_real_list = []
-    delay_start_list = []
-    delay_end_list = []
-    loss_start_rate_list = []
-    loss_end_rate_list = []
-
-    win_cnt = 0
-    lose_cnt = 0
-
-    win_real_cnt = 0
-    lose_real_cnt = 0
-
-    for order_dict in order_list:
-        pips_list.append(order_dict["pips"])
-        pips_real_list.append(order_dict["pips_real"])
-        delay_start_list.append(order_dict["delay_start"])
-        delay_end_list.append(order_dict["delay_end"])
-        loss_start_rate_list.append(order_dict["loss_start_rate"])
-        loss_end_rate_list.append(order_dict["loss_end_rate"])
-
-        pips = order_dict["pips"]
-        pips_real = order_dict["pips_real"]
-
-        if pips>= 0:
-            win_cnt += 1
-        elif pips < 0:
-            lose_cnt += 1
-
-        if pips_real>= 0:
-            win_real_cnt += 1
-        elif pips_real < 0:
-            lose_real_cnt += 1
-
-
-    tmp_trade_cnt = len(order_list)
-
-    print("")
-    print(h)
-    print("trade_cnt:", tmp_trade_cnt)
-    print("")
-    print("win_rate:", win_cnt/tmp_trade_cnt)
-    print("win_cnt:", win_cnt)
-    print("lose_cnt:", lose_cnt)
-    print("avg pips:", np.average(np.array(pips_list)))
-    print("")
-    print("win_real_rate:", win_real_cnt/tmp_trade_cnt)
-    print("win_real_cnt:", win_real_cnt)
-    print("lose_real_cnt:", lose_real_cnt)
-    print("avg real pips:", np.average(np.array(pips_real_list)))
-    print("")
-    print("loss pips:", np.average(np.array(pips_list)) - np.average(np.array(pips_real_list)))
-    print("")
-    print("avg loss start rate:", np.average(np.array(loss_start_rate_list)))
-    print("avg loss end rate:", np.average(np.array(loss_end_rate_list)))
-    print("")
-    print("avg delay start:", np.average(np.array(delay_start_list)))
-    print("avg delay end:", np.average(np.array(delay_end_list)))
-
-
-print("")
-print("delay_start毎の統計")
-print("")
-#delay_start毎の統計
-delay_start_order_dict_sorted = sorted(delay_start_order_dict.items())
-
-for delay_start, order_list in delay_start_order_dict_sorted:
-
-    pips_list = []
-    pips_real_list = []
-    delay_start_list = []
-    delay_end_list = []
-    loss_start_rate_list = []
-
-    win_cnt = 0
-    lose_cnt = 0
-
-    win_real_cnt = 0
-    lose_real_cnt = 0
-
-    for order_dict in order_list:
-        pips_list.append(order_dict["pips"])
-        pips_real_list.append(order_dict["pips_real"])
-        delay_start_list.append(order_dict["delay_start"])
-        delay_end_list.append(order_dict["delay_end"])
-        loss_start_rate_list.append(order_dict["loss_start_rate"])
-
-        pips = order_dict["pips"]
-        pips_real = order_dict["pips_real"]
-
-        if pips>= 0:
-            win_cnt += 1
-        elif pips < 0:
-            lose_cnt += 1
-
-        if pips_real>= 0:
-            win_real_cnt += 1
-        elif pips_real < 0:
-            lose_real_cnt += 1
-
-
-    tmp_trade_cnt = len(order_list)
-
-    print("")
-    print(delay_start)
-    print("trade_cnt:", tmp_trade_cnt)
-    print("")
-    print("win_rate:", win_cnt/tmp_trade_cnt)
-    print("win_cnt:", win_cnt)
-    print("lose_cnt:", lose_cnt)
-    print("avg pips:", np.average(np.array(pips_list)))
-    print("")
-    print("win_real_rate:", win_real_cnt/tmp_trade_cnt)
-    print("win_real_cnt:", win_real_cnt)
-    print("lose_real_cnt:", lose_real_cnt)
-    print("avg real pips:", np.average(np.array(pips_real_list)))
-    print("")
-    print("loss pips:", np.average(np.array(pips_list)) - np.average(np.array(pips_real_list)))
-    print("")
-    print("avg loss start rate:", np.average(np.array(loss_start_rate_list)))
-
-print("")
-print("delay_end毎の統計")
-print("")
-#delay_end毎の統計
-delay_end_order_dict_sorted = sorted(delay_end_order_dict.items())
-
-for delay_end, order_list in delay_end_order_dict_sorted:
-
-    pips_list = []
-    pips_real_list = []
-    delay_start_list = []
-    delay_end_list = []
-    loss_end_rate_list = []
-
-    win_cnt = 0
-    lose_cnt = 0
-
-    win_real_cnt = 0
-    lose_real_cnt = 0
-
-    for order_dict in order_list:
-        pips_list.append(order_dict["pips"])
-        pips_real_list.append(order_dict["pips_real"])
-        delay_start_list.append(order_dict["delay_start"])
-        delay_end_list.append(order_dict["delay_end"])
-        loss_end_rate_list.append(order_dict["loss_end_rate"])
-
-        pips = order_dict["pips"]
-        pips_real = order_dict["pips_real"]
-
-        if pips>= 0:
-            win_cnt += 1
-        elif pips < 0:
-            lose_cnt += 1
-
-        if pips_real>= 0:
-            win_real_cnt += 1
-        elif pips_real < 0:
-            lose_real_cnt += 1
-
-
-    tmp_trade_cnt = len(order_list)
-
-    print("")
-    print(delay_end)
-    print("trade_cnt:", tmp_trade_cnt)
-    print("")
-    print("win_rate:", win_cnt/tmp_trade_cnt)
-    print("win_cnt:", win_cnt)
-    print("lose_cnt:", lose_cnt)
-    print("avg pips:", np.average(np.array(pips_list)))
-    print("")
-    print("win_real_rate:", win_real_cnt/tmp_trade_cnt)
-    print("win_real_cnt:", win_real_cnt)
-    print("lose_real_cnt:", lose_real_cnt)
-    print("avg real pips:", np.average(np.array(pips_real_list)))
-    print("")
-    print("loss pips:", np.average(np.array(pips_list)) - np.average(np.array(pips_real_list)))
-    print("")
-    print("avg loss end rate:", np.average(np.array(loss_end_rate_list)))

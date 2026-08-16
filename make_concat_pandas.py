@@ -15,33 +15,55 @@ import pandas as pd
 import pickle
 import socket
 from datetime import datetime
+import send_mail as mail
 """
 lgbm用のpandasデータを縦方向に連結する
 """
+def make_dict_data(df_dict, df):
+
+    for c in df.columns.tolist():
+        l = df[c].values.tolist()
+        if c in df_dict:
+            df_dict[c].extend(l)
+        else:
+            df_dict[c] = [l]
+
+
 print("START")
 print("memory0", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
 
 start_time = time.perf_counter()
 
 symbol = "USDJPY"
-bet_term = 2
-data_term = 2
+bet_term = 1
+data_term = 1
 
-startDt = datetime(2023, 4, 1)
-endDt = datetime(2024, 8, 10)
+startDt = datetime(2010, 1, 1)
+endDt = datetime(2024, 12, 1)
 start_score = int(time.mktime(startDt.timetuple()))
 end_score = int(time.mktime(endDt.timetuple()))
 
 
 dfs =[
-    "CF174",
-    "MF219"
+    "IF372",
+    "IF373",
+    "IF374",
+    "IF375",
+    "IF376",
+    "IF377",
+    "IF378",
+    "IF379",
+    "IF380",
+    "IF381",
+    "IF382",
+    "IF383",
+    "IF384",
+    "IF385",
+    "IF386",
 ]
 
-"""
-for i in range(207,211+1):
-    dfs.append('PF' + str(i))
-"""
+#for i in range(1279,1292+1):
+#    dfs.append('PF' + str(i))
 
 df_paths = []
 for d in dfs:
@@ -59,6 +81,7 @@ for d in dfs:
 print(dfs)
 print(df_paths)
 
+df_dict = {}
 
 df_list = []
 for i,df_tmp in enumerate(dfs):
@@ -71,17 +94,24 @@ for i,df_tmp in enumerate(dfs):
     print(df_file_path)
     print("info")
     print(df.info())
+
+    #make_dict_data(df_dict, df)
+    #del df
     df_list.append(df)
     print("memory0." + str(i), psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
+    #f.close()
 
 # 結合実施
-df_org = pd.concat(df_list)
+df_org = pd.concat(df_list,ignore_index=True, axis=0)
+#df_org = pd.DataFrame(df_dict)
+#del df_dict
+
 print("memory1", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
 gc.collect()
 print("memory1.1", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
 # 開始、終了期間で絞る
-df_org.query('@start_score <= score < @end_score',inplace=True)
-print("memory2", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
+#df_org.query('@start_score <= score < @end_score',inplace=True)
+#print("memory2", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
 
 df_org.set_index("score", drop=False, inplace=True)
 print("memory3", psutil.virtual_memory().available / 1024 / 1024 / 1024, "GB")
@@ -176,3 +206,4 @@ df_org.to_pickle(pickle_file_name)
 print(datetime.now())
 print("FINISH")
 print("Processing Time(Sec)", time.perf_counter() - start_time)
+mail.send_message("make_concat_pandas finished!!!")

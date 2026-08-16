@@ -13,19 +13,19 @@ import socket
 from util import *
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 import send_mail as mail
-from testLstmFX2_answer import get_result_rgr_both, showDetail,showProfitInd,showProfitTime,showProfitIndUpDown,showPipsPerSpread
+from testLstmFX2_answer import get_result_rgr_both, showDetail,showProfitInd,showProfitTime,showProfitIndUpDown,showPipsPerSpread, showPipsPerSMA
 from lgbm_make_data import LgbmMakeData
 
 from important_index import *
 
 host = socket.gethostname()
-output_log_name = "/home/reicou/tmp_" + host + "-lgbm.txt"
+output_log_name = "/home/reicou/tmp_" + host + "-lgbm_test.txt"
 output = output_log(output_log_name)
 
 png_dir = "/app/fx/png/"
 
 
-def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
+def do_test(conf, test_conf, test_lmd, start_dt, end_dt, div_conf={}):
     start_time = time.perf_counter()
 
     df = test_lmd.get_x()
@@ -45,6 +45,8 @@ def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
     score_list = test_lmd.get_score_list()
     # 全spread値のリスト
     spread_list = test_lmd.get_spread_list()
+    spread_end_list = test_lmd.get_spread_end_list()
+
     #予想対象リスト 予想対象の場合-1が入っている
     train_list_index = test_lmd.get_train_list_index()
     # 全jpy値のリスト
@@ -68,14 +70,22 @@ def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
 
     # 予想対象のspread値のリスト
     target_spread_list = spread_list[np.where(train_list_index != -1)[0]]
+    target_spread_end_list = spread_end_list[np.where(train_list_index != -1)[0]]
+
+    # 予想対象のtickのリスト
+    target_tick_list = test_lmd.get_tick_list()[np.where(train_list_index != -1)[0]]
+
+    target_highest_close_list = test_lmd.get_highest_close_list()[np.where(train_list_index != -1)[0]]
+    target_lowest_close_list = test_lmd.get_lowest_close_list()[np.where(train_list_index != -1)[0]]
 
     # 予想対象のjpyのリスト
     target_jpy_list = jpy_list[np.where(train_list_index != -1)[0]]
 
     #長さチェック
-    if len(target_score_list) != len(pred_close_list) or len(target_score_list) != len(real_close_list) or len(target_score_list) != len(target_spread_list) \
-        or len(target_score_list) != len(target_jpy_list):
-        print("list length is wrong!!!", len(target_score_list), len(pred_close_list), len(real_close_list), len(target_spread_list), len(target_jpy_list),  )
+    if len(target_score_list) != len(pred_close_list) or len(target_score_list) != len(real_close_list) or len(target_score_list) != len(target_spread_list) or len(target_score_list) != len(target_spread_end_list) \
+        or len(target_score_list) != len(target_jpy_list) or len(target_score_list) != len(target_tick_list):
+
+        print("list length is wrong!!!", len(target_score_list), len(pred_close_list), len(real_close_list), len(target_spread_list), len(target_spread_end_list), len(target_jpy_list), len(target_tick_list) )
         exit(1)
 
     # 予想時に持てるポジション
@@ -95,45 +105,50 @@ def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
 
     if data_length != 0:
         output("data_length:", data_length)
-        output("UP: ", test_lmd.up/data_length)
-        output("SAME: ", test_lmd.same/data_length)
-        output("DOWN: ", test_lmd.dw/data_length)
-        output("up_take_profit_rate:", test_lmd.up_take_profit_cnt/data_length)
-        output("dw_take_profit_rate: ", test_lmd.dw_take_profit_cnt/data_length)
+        #output("UP: ", test_lmd.up/data_length)
+        #output("SAME: ", test_lmd.same/data_length)
+        #output("DOWN: ", test_lmd.dw/data_length)
+        #output("up_take_profit_rate:", test_lmd.up_take_profit_cnt/data_length)
+        #output("dw_take_profit_rate: ", test_lmd.dw_take_profit_cnt/data_length)
 
     # CATEGORY_BIN_BOTHの場合はupとdwのモデルをリストにする
+    """
     FILE_PREFIXS = [
         [
             "USDJPY_LT3_M7_LSTM1_B2_T30_I2-10-60-300_IL300-300-240-48_LU30-30-24-5_DU96-48-24-12_BNL2_BDIV0.01_201001_202210_L-RATE0.002_LT1_ADAM_d1-M1_OT-d_OD-c_IDL1_BS15360_SD0_SHU1_EL20-21-22_ub1_MN194",
             "USDJPY_LT4_M7_LSTM1_B2_T30_I2-10-60-300_IL300-300-240-48_LU30-30-24-5_DU96-48-24-12_BNL2_BDIV0.01_201001_202210_L-RATE0.002_LT1_ADAM_d1-M1_OT-d_OD-c_IDL1_BS15360_SD0_SHU1_EL20-21-22_ub1_MN196",
         ]
     ]
+    """
 
     FILE_PREFIXS = [
-        "MN923",
+        #"MN2009",
+        "MN2112",
     ]
 
     if len(FILE_PREFIXS) == 0:
         FILE_PREFIXS = [conf.FILE_PREFIX]
 
-    border_list = [0.47,0.48,0.49,0.50, 0.51,  ]
+    border_list = [0.51,  ]
 
     if conf.LEARNING_TYPE in ["CATEGORY", "CATEGORY_BIN_BOTH", "CATEGORY_BIN_UP", "CATEGORY_BIN_DW",]:
         #border_list = [0.36,0.38,0.4,0.42,0.44,0.46,0.48, 0.49,0.5,  ]
-        border_list = [0.5, 0.52,0.54,0.56,]
-        #border_list = [0.62]
-        #border_list = [ 0.56,0.57,0.58, 0.59, 0.6, 0.61, 0.62, 0.63, 0.64,  ]
+        #border_list = [0.5,0.52,0.54,0.56,0.58,]
+        #border_list = [0.49,0.5,0.51,0.52,0.53,0.54,]  # for BDIV1.0
+        #border_list = [0.54,0.55, 0.56, 0.57,0.58, 0.59, 0.6, 0.61, ]  # for BDIV0.5
+        border_list = [0.51,0.52,0.53,0.54,0.55,0.56, 0.57,0.58, 0.59, 0.6]  # for BDIV0.1
         #border_list = [ 0.58, 0.59,0.6, 0.61, 0.62, 0.64,0.66,0.68,0.7, ]
         #border_list = [ 0.46,0.48, 0.5,] #for ADJUST_PIPS:0.0
         #border_list = [ 0.56, 0.58, 0.6, 0.62, 0.64,0.66,0.68,0.7, ]
+
 
     elif conf.LEARNING_TYPE in ["REGRESSION",]:
         #border_list = [2, 4, 6, 8, 10, 12, 14, 16 ]
         border_list = [0.001,0.002, 0.004, 0.006, 0.008, ]
 
-    iteration_range_s = 141
-    iteration_range_e = 141
-    skip = 10
+    iteration_range_s = 503
+    iteration_range_e = 503
+    skip = 1
     output("iteration_range_s:",iteration_range_s)
     output("iteration_range_e:",iteration_range_e)
     output("iteration skip:",skip)
@@ -149,15 +164,22 @@ def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
     show_profit_ind_up_dw = False
     show_profit_time = False
     show_profit_per_spread = False
+    show_profit_per_sma_list = [] #ema毎の利益を表示する 空の配列:設定なし
 
-    show_plot = False
+    show_profit_per_boli_std_div = []
+    #show_profit_per_boli_std_div = ["M1-5-3", "M1-20-3", "H1-20-3", ]  # buyなら下のアルファ、sellなら上のアルファとのdivを取る
+
+    show_plot = True
     show_total = True #borderやsuffix全体の成績順位を表示する場合 True. 特定のsuffixとborder_listを組みでテストする場合はFalseになる
     save_dir = None
 
-    #重要指標の時間帯を除外してテストする
-    #important_index_list = []
-    important_index_list = ["雇用統計", "CPI", "ISM製造業景況指数","GDP", "ADP雇用統計", "ISM非製造業景況指数", "小売売上高", "新築住宅販売件数", "個人消費支出", "FOMC金利発表", "日銀政策金利発表",]
-    important_index_range = 300 #除外する前後の時間秒
+    # 重要指標の時間帯を除外してテストする
+    important_index_range = None #除外する前後の時間秒 Noneなら除外なし
+    #important_index_range = 300 #除外する前後の時間秒 Noneなら除外なし
+    importance = "importances_high"
+
+    #tickの動いた回数でしぼる
+    refer_tick_cnt = 0 #動いた回数 0:設定なし
 
     if show_plot:
         # png保存用のディレクトリ作成
@@ -186,11 +208,59 @@ def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
         output("RESTRICT_SEC:", conf.RESTRICT_SEC)
     output("EXCEPT_LIST_HOUR_TEST:", conf.EXCEPT_LIST_HOUR_TEST)
 
-    output("important_index_list:", important_index_list)
-    if len(important_index_list) != 0:
-        output("important_index_range:", important_index_range)
-    importantAnswer = ImportantIndex(index_set = important_index_list, range=important_index_range)
+    output("important_index_range:", important_index_range)
+    if important_index_range != None:
+        output("importance:", importance)
+    importantAnswer = ImportantIndex(importance=importance, range=important_index_range, startDt=start_dt, endDt=end_dt)
 
+    min_div = div_conf.get("min_div")  # None:設定なし
+    max_div = div_conf.get("max_div")  # None:設定なし
+    div_sec = div_conf.get("div_sec")
+    stoploss_multi = div_conf.get("stoploss_multi")
+    stoploss_max = div_conf.get("stoploss_max")
+
+    output("min_div:", min_div)
+    output("max_div:", max_div)
+    output("stoploss_multi:", stoploss_multi)
+    output("stoploss_max:", stoploss_max)
+
+    div_conf = None
+    if min_div != None or max_div != None or stoploss_multi != None or stoploss_max != None:
+        output("div_sec:", div_sec)
+        div_conf = {
+            "min_div": min_div,
+            "max_div": max_div,
+            "div_sec": div_sec,
+            "stoploss_multi": stoploss_multi,
+            "stoploss_max": stoploss_max,
+        }
+
+    hl_dict = {}
+
+    # conf.INCLUDE_HL_FLGをTrueにして答えまでの高値安値データを保持していない場合、データを準備する
+    if stoploss_multi != None or stoploss_max != None:
+        if np.any(target_highest_close_list == None) or np.any(target_lowest_close_list == None):
+            start_stp = int(time.mktime(start_dt.timetuple()))
+            end_stp = int(time.mktime(end_dt.timetuple())) - 1
+
+            r = redis.Redis(host=conf.DB_HOST, port=6379, db=conf.DB_EVAL_NO, decode_responses=True)
+            hl_db_name = conf.SYMBOL + "_" + str(conf.BET_TERM) + "_HL-" + str(int(conf.TERM))
+            result_hl = r.zrangebyscore(hl_db_name, start_stp, end_stp, withscores=True)
+
+            for res in result_hl:
+                body = res[0]
+                score = float(res[1])
+                tmps = json.loads(body)
+
+                hl_dict[score] = {
+                    "h": float(tmps.get("h")),
+                    "l": float(tmps.get("l")),
+                }
+
+    score_close_dict = dict(zip(score_list, close_list))
+
+    output("refer_tick_cnt:", refer_tick_cnt)
+    output("MAX_SPREAD:", conf.MAX_SPREAD)
     for file in FILE_PREFIXS:
         if show_plot:
             # png保存用のディレクトリ作成
@@ -200,6 +270,9 @@ def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
 
         output("FILE_PREFIX:", file)
 
+        # 予想結果表示用テキストを保持
+        result_txt = []
+
         for suffix in model_suffix:
             output("")
             if conf.LEARNING_TYPE == "REGRESSION":
@@ -207,7 +280,7 @@ def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
                 if isinstance(suffix, list):
                     suffix, border_list = suffix
                     show_total = False
-                output("suffix:", suffix)
+                result_txt.append(list_to_str_blank("suffix:", suffix))
 
                 result_per_suffix_border[suffix] = {}
 
@@ -237,7 +310,7 @@ def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
                     if isinstance(suffix, list):
                         suffix, border_list = suffix
                         show_total = False
-                    output("suffix:", suffix)
+                    result_txt.append(list_to_str_blank("suffix:", suffix))
 
                     result_per_suffix_border[suffix] = {}
 
@@ -245,7 +318,9 @@ def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
 
                     #予想取得
                     predict_list = bst.predict(x, num_iteration=int(suffix))
-                    #print(predict_list)
+                    #predict_list = bst.predict(x)
+                    #print("predict_list length:",len(predict_list))
+                    #print(predict_list[:100])
                 else:
                     # suffixがリストなら２つめの値をborder_listとする
                     if isinstance(suffix, list):
@@ -257,7 +332,7 @@ def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
                         for t_b in tmp_border_list:
                             border_list.append(str(t_b[0]) + "-" + str(t_b[1]))  # upとdwのborderを合わせる
 
-                    output("suffix:", suffix)
+                    result_txt.append(list_to_str_blank("suffix:", suffix))
 
                     result_per_suffix_border[suffix] = {}
 
@@ -281,19 +356,17 @@ def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
                     #predict_list = all[:, [0, 1, 2]]
 
             for border_ind, border in enumerate(border_list):
-
-                # 予想結果表示用テキストを保持
-                result_txt = []
-
                 # 成績の詳細を表示
                 Acc, total_num, profit, correct_num, correct_pips, wrong_num, wrong_pips, earned_money_max_drawdown, max_drawdown, \
                 bet_cnt_up, earned_money_up, correct_num_up, correct_pips_up, wrong_num_up, wrong_pips_up, \
                 bet_cnt_dw, earned_money_dw, correct_num_dw, correct_pips_dw, wrong_num_dw, wrong_pips_dw, \
-                answer_rate_list, answer_rate_list_up, answer_rate_list_dw, idx, idx_up, idx_dw, close_correct_num, spr_pred_pips_list = showDetail(
+                answer_rate_list, answer_rate_list_up, answer_rate_list_dw, idx, idx_up, idx_dw, close_correct_num, spr_pred_pips_list, sma_list = showDetail(
                     save_dir, suffix, conf, predict_list, sub_close_list, border, answer_rate_up_list,
                     answer_rate_dw_list,
                     position_list, target_score_list, close_list, score_list, answer_score_up_list,
-                    answer_score_dw_list, target_spread_list, target_jpy_list, pred_close_list, importantAnswer, show_plot=show_plot, lgbm_flg=True, start_dt=start_dt, end_dt=end_dt)
+                    answer_score_dw_list, target_spread_list, target_jpy_list, pred_close_list, importantAnswer, target_tick_list, target_spread_end_list,
+                    target_highest_close_list, target_lowest_close_list, show_plot=show_plot, lgbm_flg=True, start_dt=start_dt, end_dt=end_dt,
+                    div_conf=div_conf, score_close_dict=score_close_dict, refer_tick_cnt=refer_tick_cnt, show_profit_per_sma_list=show_profit_per_sma_list, hl_dict=hl_dict, show_profit_per_boli_std_div=show_profit_per_boli_std_div )
 
                 result_per_suffix_border[suffix][border] = get_result_rgr_both(Acc, total_num, profit, correct_num,
                                                                                correct_pips, wrong_num, wrong_pips,
@@ -340,9 +413,9 @@ def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
                         result_txt.append("Profit_DW:" + str(earned_money_dw) + " Acc_DW:" + str(
                             result_per_suffix_border[suffix][border]["Acc_DW"]) + " Bet_cnt_DW:" + str(bet_cnt_dw))
 
-                output("")
-                for i in result_txt:
-                    output(i)
+                result_txt.append("")
+                #for i in result_txt:
+                #    output(i)
 
                 if show_profit_ind:
                     showProfitInd(border, idx, answer_rate_list, target_ind_list, show_plot, save_dir, target_ind_cols)
@@ -357,13 +430,17 @@ def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
                     if show_profit_per_spread:
                         showPipsPerSpread(spr_pred_pips_list, border)
 
+                if len(show_profit_per_sma_list) != 0:
+                    result_txt.append("SMAごとの利益")
+                    showPipsPerSMA(spr_pred_pips_list, border, sma_list, show_profit_per_sma_list, result_txt)
+
         if show_total == True and conf.LEARNING_TYPE in ["REGRESSION", "CATEGORY", "CATEGORY_BIN_BOTH",
                                                          "CATEGORY_BIN_UP", "CATEGORY_BIN_DW", "CATEGORY_BIN",
                                                          "REGRESSION_OCOPS", "CATEGORY_OCOPS"]:
-            output("利益が多い順")
+            result_txt.append("利益が多い順")
             total_result = {}
             for b in border_list:
-                output("border:", b)
+                result_txt.append(list_to_str_blank("border:", b))
                 sorted_d = sorted(result_per_suffix_border.items(), key=lambda x: x[1][b]["Profit"], reverse=True)
                 cnt_t = 0
                 for k, v in sorted_d:
@@ -375,20 +452,20 @@ def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
 
                     total_result[str(k) + "-" + str(b)] = v[b]
                     if total_len != 0:
-                        output("suffix:", k, "EanredMoney/(MAXDrawDown-FUND):",
+                        result_txt.append(list_to_str_blank("suffix:", k, "EanredMoney/(MAXDrawDown-FUND):",
                                v[b]["EanredMoney/(MAXDrawDown-FUND)"], "Profit:", total_profit,
                                "MAXDrawDown:", v[b]["MAXDrawDown"], "Acc:", v[b]["Acc"], "Bet_cnt:", total_len,
                                "C-W:", v[b]["Correct-Wrong"], "C-C-W:", v[b]["Close-Correct-Wrong"],
                                "C-C-W-R:", v[b]["Close-Correct-Wrong-Rate"],
                                "Pips:", v[b]["Pips"], "Pips/Total_num:", v[b]["Pips/Total_num"],
-                               )
+                               ))
                     cnt_t += 1
-                output("")
-                output("")
+                result_txt.append("")
+                result_txt.append("")
 
-            output("EanredMoney/(MAXDrawDown-FUND)が多い順")
+            result_txt.append("EanredMoney/(MAXDrawDown-FUND)が多い順")
             for b in border_list:
-                output("border:", b)
+                result_txt.append(list_to_str_blank("border:", b))
                 sorted_d = sorted(result_per_suffix_border.items(),
                                   key=lambda x: x[1][b]["EanredMoney/(MAXDrawDown-FUND)"], reverse=False)
                 cnt_t = 0
@@ -399,19 +476,19 @@ def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
                     total_len = v[b]["Bet_cnt"]
                     total_result[str(k) + "-" + str(b)] = v[b]
                     if total_len != 0:
-                        output("suffix:", k, "EanredMoney/(MAXDrawDown-FUND):",
+                        result_txt.append(list_to_str_blank("suffix:", k, "EanredMoney/(MAXDrawDown-FUND):",
                                v[b]["EanredMoney/(MAXDrawDown-FUND)"], "Profit:", total_profit,
                                "MAXDrawDown:", v[b]["MAXDrawDown"], "Acc:", v[b]["Acc"], "Bet_cnt:", total_len,
                                "C-W:", v[b]["Correct-Wrong"], "C-C-W:", v[b]["Close-Correct-Wrong"],
                                "C-C-W-R:", v[b]["Close-Correct-Wrong-Rate"],
                                "Pips:", v[b]["Pips"], "Pips/Total_num:", v[b]["Pips/Total_num"],
-                               )
+                               ))
                     cnt_t += 1
-                output("")
+                result_txt.append("")
 
-            output("正解が多い順(スプレッドあり)")
+            result_txt.append("正解が多い順(スプレッドあり)")
             for b in border_list:
-                output("border:", b)
+                result_txt.append(list_to_str_blank("border:", b))
                 sorted_d = sorted(result_per_suffix_border.items(), key=lambda x: x[1][b]["Correct-Wrong"],
                                   reverse=True)
                 cnt_t = 0
@@ -422,19 +499,19 @@ def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
                     total_len = v[b]["Bet_cnt"]
                     total_result[str(k) + "-" + str(b)] = v[b]
                     if total_len != 0:
-                        output("suffix:", k, "EanredMoney/(MAXDrawDown-FUND):",
+                        result_txt.append(list_to_str_blank("suffix:", k, "EanredMoney/(MAXDrawDown-FUND):",
                                v[b]["EanredMoney/(MAXDrawDown-FUND)"], "Profit:", total_profit,
                                "MAXDrawDown:", v[b]["MAXDrawDown"], "Acc:", v[b]["Acc"], "Bet_cnt:", total_len,
                                "C-W:", v[b]["Correct-Wrong"], "C-C-W:", v[b]["Close-Correct-Wrong"],
                                "C-C-W-R:", v[b]["Close-Correct-Wrong-Rate"],
                                "Pips:", v[b]["Pips"], "Pips/Total_num:", v[b]["Pips/Total_num"],
-                               )
+                               ))
                     cnt_t += 1
-                output("")
+                result_txt.append("")
 
-            output("正解が多い順(スプレッドなし)")
+            result_txt.append("正解が多い順(スプレッドなし)")
             for b in border_list:
-                output("border:", b)
+                result_txt.append(list_to_str_blank("border:", b))
                 sorted_d = sorted(result_per_suffix_border.items(), key=lambda x: x[1][b]["Close-Correct-Wrong"],
                                   reverse=True)
                 cnt_t = 0
@@ -445,15 +522,15 @@ def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
                     total_len = v[b]["Bet_cnt"]
                     total_result[str(k) + "-" + str(b)] = v[b]
                     if total_len != 0:
-                        output("suffix:", k, "EanredMoney/(MAXDrawDown-FUND):",
+                        result_txt.append(list_to_str_blank("suffix:", k, "EanredMoney/(MAXDrawDown-FUND):",
                                v[b]["EanredMoney/(MAXDrawDown-FUND)"], "Profit:", total_profit,
                                "MAXDrawDown:", v[b]["MAXDrawDown"], "Acc:", v[b]["Acc"], "Bet_cnt:", total_len,
                                "C-W:", v[b]["Correct-Wrong"], "C-C-W:", v[b]["Close-Correct-Wrong"],
                                "C-C-W-R:", v[b]["Close-Correct-Wrong-Rate"],
                                "Pips:", v[b]["Pips"], "Pips/Total_num:", v[b]["Pips/Total_num"],
-                               )
+                               ))
                     cnt_t += 1
-                output("")
+                result_txt.append("")
 
             output("全体の利益の多い順")
             sorted_d_total = sorted(total_result.items(), key=lambda x: x[1]["Profit"], reverse=True)
@@ -536,18 +613,22 @@ def do_test(conf, test_conf, test_lmd, start_dt, end_dt):
                 cnt_t += 1
             output("")
 
-    output("predict end", time.perf_counter() - start_time)
+            for i in result_txt:
+                output(i)
+    #output("predict end", time.perf_counter() - start_time)
 
 if __name__ == "__main__":
 
     start_time = time.perf_counter()
 
     conf = conf_class_lgbm.ConfClassLgbm()
-    test_data_load_path = "/db2/lgbm/" + conf.SYMBOL + "/test_file/TESF17.pickle"
-    conf_load_path = "/db2/lgbm/" + conf.SYMBOL + "/test_file/TESF17-conf.pickle"
+    test_data_load_path = "/db2/lgbm/" + conf.SYMBOL + "/test_file/TESF412.pickle"
+    conf_load_path = "/db2/lgbm/" + conf.SYMBOL + "/test_file/TESF412-conf.pickle"
 
-    start_dt = datetime(2023, 4, 1, )
-    end_dt = datetime(2024, 5, 4, ) #この時間を含めない
+    start_dt = datetime(2024, 12, 1, )
+    end_dt = datetime(2026, 5, 2, ) #この時間を含めない
+    #end_dt = datetime(2024, 12, 5, ) #この時間を含めない
+
     output("test_data_load_path:", test_data_load_path)
     output("conf_load_path:", conf_load_path)
 
@@ -561,7 +642,34 @@ if __name__ == "__main__":
     with open(conf_load_path, 'rb') as cf:
         test_conf = pickle.load(cf)
 
-    do_test(conf, test_conf, test_lmd, start_dt, end_dt )
+    conf.FX_LEVERAGE = 500
+    conf.ADJUST_PIPS = 0.0
+    conf.FX_SINGLE_FLG = False
+    conf.RESTRICT_FLG = False
+    conf.ADJUST_PIPS_SPREAD_FLG = True
+    conf.MAX_SPREAD = 100
+    conf.BUY_FLG = True
+    conf.SELL_FLG = True
+
+    conf.BINARY = True
+    conf.PAYOUT = 1000
+    conf.PAYOFF = -1000
+
+    if conf.BINARY:
+        conf.ADJUST_PIPS_SPREAD_FLG = False  # True:スプレッドを加味した利益とする場合
+
+    div_conf_list = [
+        {
+            'min_div': None,  # None:設定なし
+            'max_div': None,  # None:設定なし
+            'div_sec': 300,
+            'stoploss_multi': None,  # None:設定なし
+            'stoploss_max': None,  # None:設定なし
+        },
+
+    ]
+    for div_conf in div_conf_list:
+        do_test(conf, test_conf, test_lmd, start_dt, end_dt,div_conf )
 
     print("Processing Time(Sec)", time.perf_counter() - start_time)
     # 終わったらメールで知らせる

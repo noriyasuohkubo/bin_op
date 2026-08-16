@@ -9,17 +9,22 @@ import sys
 from decimal import Decimal
 from util import *
 """
-FXTFのノックアウトオプションのスプレッドを調査
+スプレッドを調査
 """
 
-start = datetime(2023, 4, 1,  )
+start = datetime(2024, 12, 1,  )
 start_stp = int(time.mktime(start.timetuple()))
-end = datetime(2024, 3, 7, )
+end = datetime(2026, 1, 24, )
 end_stp = int(time.mktime(end.timetuple()))
 
-db_no = 8
-db_name = "USDJPY_60_FXTF_KO"
-host = "win8"
+except_hour_list = [20,21,22,23]
+
+db_no = 2
+#db_name = "AXI_USDJPY.p_S1"
+db_name = "USDJPY_1_0"
+#host = "192.168.1.115"
+host = "localhost"
+
 
 redis_db = redis.Redis(host=host, port=6379, db=db_no, decode_responses=True)
 
@@ -30,19 +35,23 @@ spreads = {}
 
 cnt = 0
 for line in result_data:
-    cnt += 1
     body = line[0]
     score = line[1]
     tmp = json.loads(body)
 
-    spread = tmp.get("spread")
+    if len(except_hour_list) != 0:
+        if datetime.fromtimestamp(score).hour in except_hour_list:
+            continue
+
+    #spread = tmp.get("spread")
+    spread = tmp.get("s")
 
     if spread in spreads.keys():
         spreads[spread] +=1
     else:
         spreads[spread] = 1
 
-    ret = redis_db.zadd(db_name, json.dumps(tmp), score)
+    cnt += 1
 
-for k,v in spreads.items():
-    print(k,v)
+for k, v in sorted(spreads.items()):
+    print("spread:",k, " 件数:",v, " %", v/cnt*100)

@@ -33,6 +33,7 @@ def get_decimal_mod(a,b):
 #adx7:14 adx14:28 period * 2
 def get_need_len():
     need_length_dict = {
+        "c": 0,
         "rsi": 0,
         "d": 0,
         "d20000": 0,
@@ -52,6 +53,7 @@ def get_need_len():
         "ehd1": 2,
         "eld1": 2,
         "d1": 0,
+        "std~d1": 0,
         "std_d":0,
         "sub": 0,
         "sub1": 0,
@@ -144,7 +146,7 @@ def get_max_need_len(cols):
         need_lens = get_need_len()
         tmp_need_length_list = []
         for col in cols:
-            if col == "d1":
+            if col in ["d1", "std~d1", "c"] or "~d1" in col:
                 tmp_need_length_list.append(1)
             else:
                 idx, t_len = col.split("-")
@@ -293,6 +295,9 @@ def list_to_str(list, spl="-"):
             return_str = str(v)
     return return_str
 
+def list_to_str_blank(*list):
+
+    return list_to_str(list, spl=" ")
 
 def make_db_list(symbol, db_term, bet_term):
     return_list = []
@@ -317,7 +322,7 @@ def printLog(logger):
 
     return f
 
-def output_log(file_name):
+def output_log(file_name, print_flg=True):
     def func(*args):
         with open(file_name, mode='a') as f:
             tmp_str = ""
@@ -325,7 +330,8 @@ def output_log(file_name):
                 tmp_str = tmp_str + " " + str(a) if i !=0 else str(a)
             f.write(tmp_str)
             f.write('\n')
-        print(tmp_str)
+        if print_flg:
+            print(tmp_str)
 
     return func
 
@@ -404,3 +410,5 @@ def omit_zero_point_str(d):
     if str(d)[-1] == "0":
         d = int(d)
     return str(d)
+
+

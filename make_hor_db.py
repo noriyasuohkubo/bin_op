@@ -17,8 +17,8 @@ from util import *
 その数とともにDBに登録する
 
 """
-start_day = "2010/1/1 00:00:00" #この時間含む(以上)
-end_day = "2010/11/7 00:00:00"  # この時間含めない(未満) 終了日は月から金としなけらばならない
+start_day = "2024/12/1 00:00:00" #この時間含む(以上)
+end_day = "2026/5/2 00:00:00"  # この時間含めない(未満) 終了日は月から金としなけらばならない
 
 
 start_day_dt = datetime.strptime(start_day, '%Y/%m/%d %H:%M:%S')
@@ -27,14 +27,14 @@ end_day_dt = datetime.strptime(end_day, '%Y/%m/%d %H:%M:%S')
 start_stp = int(time.mktime(start_day_dt.timetuple()))
 end_stp = int(time.mktime(end_day_dt.timetuple())) -1 #含めないので1秒マイナス
 
-db_no_old = 3 #参照する足のDB
-db_no_new = 3 #登録するDB
+db_no_old = 1 #参照する足のDB
+db_no_new = 1 #登録するDB
 
 #足の長さ(秒)
 org_term = 60
 
-width = 0.01 #値幅
-history_min = 60 * 24 #過去何分のデータを集計対象とするか
+width = 0.02 #値幅
+history_min = 60 #過去何分のデータを集計対象とするか
 history_len = int(Decimal(str(history_min)) * Decimal(str(60)) / Decimal(str(org_term))) -1
 
 
@@ -61,7 +61,6 @@ def convert():
         tmps = json.loads(body)
 
         val_dict = {}
-        val_dict["c"] = float(tmps.get("c"))
         val_dict["eh"] = float(tmps.get("eh"))
         val_dict["el"] = float(tmps.get("el"))
 
@@ -113,9 +112,9 @@ def convert():
             next_rate = float(Decimal(str(now_rate)) + Decimal(str(width)))
 
             #指定値幅に合致する件数をカウント
-            hit_cnt = len(np.where((now_rate <= rate_arr) & (rate_arr < next_rate))[0])
+            hit_cnt = len(np.where((now_rate  <= rate_arr) & (rate_arr < next_rate))[0])
 
-            if hit_cnt > 1:
+            if hit_cnt >= 1:
                 rate_cnt_list.append(str(now_rate) + ":" + str(hit_cnt))
 
             now_rate = next_rate

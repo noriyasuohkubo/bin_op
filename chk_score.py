@@ -14,13 +14,14 @@ print('percent {:.2f}'.format(123.456))
 
 
 
-start = datetime(2007, 1, 1, )
-end = datetime(2023, 4, 1,)
+start = datetime(2024,12, 1)
+end = datetime(2026, 6,1, )
 
 start_score = int(time.mktime(start.timetuple()))
 end_score = int(time.mktime(end.timetuple()))
 print(end_score - end_score%60)
 
 print(start_score, end_score)
-print(datetime.fromtimestamp(1706745600))
+print(datetime.fromtimestamp(1782504000))
+print(datetime.strptime("2024/12/24 21:00:00", '%Y/%m/%d %H:%M:%S').timestamp())
 print(int(time.mktime(datetime(2024, 3, 1, 0,0,11).timetuple())))

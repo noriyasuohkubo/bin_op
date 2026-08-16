@@ -21,10 +21,10 @@ db_no = 8
 host = "win9"
 
 #レコード削除対象期間
-start = datetime(2024, 4, 1, 0)
+start = datetime(2024, 9, 30, 23)
 start_stp = int(time.mktime(start.timetuple()))
 
-end = datetime(2024, 5, 1,0)
+end = datetime(2024, 10, 31,0)
 end_stp = int(time.mktime(end.timetuple()))
 
 redis_db = redis.Redis(host=host, port=6379, db=db_no, decode_responses=True)

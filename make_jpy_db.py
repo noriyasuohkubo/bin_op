@@ -17,19 +17,19 @@ import pandas as pd
 """
 1秒のUSDJPYレコードを参照してレートを取り込む
 """
-db_no_old = 3
+db_no_old = 2
 db_no = 2
 db_no_jpy = 2
 
-db_name_old = "EURUSD"
-db_name = "EURUSD"
-db_name_jpy = "USDJPY"
+db_name_old = "EURGBP_1_0_OLD"
+db_name = "EURGBP_1_0"
+db_name_jpy = "GBPJPY"
 
 host = "127.0.0.1"
 host_jpy = "127.0.0.1"
 
-start_dt = datetime.datetime(2021, 1, 1)
-end_dt = datetime.datetime(2023, 5, 1)
+start_dt = datetime.datetime(2024, 12, 1)
+end_dt = datetime.datetime(2026, 5, 2)
 start_stp = int(time.mktime(start_dt.timetuple()))
 end_stp = int(time.mktime(end_dt.timetuple())) -1
 
@@ -50,8 +50,11 @@ for line in result_data:
         body_jpy = tmp_val[0][0]
 
         tmps_jpy = json.loads(body_jpy)
-        tmps["jpy"] = tmps_jpy.get("close")
-        redis_db.zadd(db_name, json.dumps(tmps), score)
+        tmps["jpy"] = tmps_jpy.get("c")
+    else:
+        tmps["jpy"] = None
+
+    redis_db.zadd(db_name, json.dumps(tmps), score)
 
 
 

@@ -11,11 +11,11 @@ db削除
 #Rename
 #redis_db.rename("GBPJPY_2_0_OLD","GBPJPY_2_0")
 
-db_no = 2
+db_no = 3
 host = "127.0.0.1"
 
-start_day = "2023/04/01 00:00:00"  # この時間含む(以上)
-end_day = "2024/06/12 00:00:00"  # この時間含めない(未満)
+start_day = "2004/01/01 00:00:00"  # この時間含む(以上)
+end_day = "2010/01/01 00:00:00"  # この時間含めない(未満)
 
 start_day_dt = datetime.strptime(start_day, '%Y/%m/%d %H:%M:%S')
 end_day_dt = datetime.strptime(end_day, '%Y/%m/%d %H:%M:%S')
@@ -25,12 +25,12 @@ end_stp = int(time.mktime(end_day_dt.timetuple())) - 1  # 含めないので1秒
 
 redis_db = redis.Redis(host=host, port=6379, db=db_no, decode_responses=True)
 
-bet_term = 2
-terms = [2,10,60,300]
+bet_term = 1
+terms = [1,]
 symbol = "USDJPY"
 
-db_list = ["USDJPY_2_0_TICK"]
-#db_list = []
+#db_list = ["USDJPY_1_0_TICK"]
+db_list = ["USDJPY_M1","USDJPY_M5"]
 
 for term in terms:
     db_list.extend(make_db_list(symbol, term, bet_term))

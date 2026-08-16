@@ -17,13 +17,11 @@ duaksから取得した分足データ(1分や5分)をもとにdivなどを計�
 # 処理時間計測
 t1 = time.time()
 
-close_shift = 1
-
 #足の長さ sec
-term = 60
+term = 3600
 
 #抽出元のDB名
-symbol_org = "USDJPY"
+symbol_org = "USDJPY_H1_db2"
 
 #新規に作成するDB名
 symbol_new = "USDJPY_" + str(term) + "_FOOT"
@@ -36,10 +34,10 @@ out_db_no = 2
 in_host = "127.0.0.1"
 out_host = "127.0.0.1"
 
-start = datetime.datetime(2022, 11, 1)
+start = datetime.datetime(2024, 1, 1)
 start_stp = int(time.mktime(start.timetuple()))
 
-end = datetime.datetime(2024, 3, 2)
+end = datetime.datetime(2026, 5, 2)
 end_stp = int(time.mktime(end.timetuple()))
 
 redis_db_in = redis.Redis(host=in_host, port=6379, db=in_db_no, decode_responses=True)
@@ -49,26 +47,15 @@ result_data = redis_db_in.zrangebyscore(symbol_org, start_stp, end_stp, withscor
 print("result_data length:" + str(len(result_data)))
 
 
-#変化率を作成
-prev_c =None
 for i, line in enumerate(result_data):
     body = line[0]
     score = line[1]
     tmps = json.loads(body)
 
-    c = float(tmps.get("c"))
-
-    #変化元(close_shift前のデータ)がないのでとばす
-    if i < close_shift:
-        prev_c = c
-        continue
-
     child = {
-        "c": c,
         'eh':float(tmps.get("h")),
         'el':float(tmps.get("l")),
         'sc': score,
-        'd1': get_divide(prev_c, c, math_log=math_log),
     }
 
     """
@@ -82,8 +69,6 @@ for i, line in enumerate(result_data):
             exit()
     """
     redis_db_out.zadd(symbol_new, json.dumps(child), score)
-
-    prev_c = c
 
     if i % 10000000 == 0:
         dt_now = datetime.datetime.now()

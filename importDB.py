@@ -2,29 +2,28 @@
 from datetime import datetime
 
 import time
-from indices import index
-from decimal import Decimal
 import redis
 import sys
 
-export_host = "192.168.1.111"
+export_host = "win2"
 import_host = "localhost"
 
-export_db_no = 8
-import_db_no = 8
+export_db_no = 0
+import_db_no = 1
 
 print(datetime.now(), "import start!!!")
-
-db_list = ["BTCUSD_30_SPR_DATA","GBPJPY_30_SPR","GBPJPY_30_SPR_TRADE","GBPJPY_60_SPR","GBPJPY_60_SPR_TRADE",]
 #db_list = DB1_LIST + DB2_LIST + DB3_LIST + DB4_LIST + DB5_LIST
+db_list = ["VANTAGE_USDJPY.p_TICK",]
+#db_list = ["VANTAGE_USDJPY.p_M1",]
 
 print(db_list)
 
-start = datetime(2000, 1, 1,  )
+start = datetime(2026, 5, 2 )
 start_stp = int(time.mktime(start.timetuple()))
 
-end = datetime(2022, 5, 1, )
-end_stp = int(time.mktime(end.timetuple()))
+end = datetime(2026, 6, 27)
+end_stp = int(time.mktime(end.timetuple())) -1
+
 
 def import_data():
     export_r = redis.Redis(host=export_host, port=6379, db=export_db_no)
@@ -38,10 +37,11 @@ def import_data():
         for line in result_data:
             body = line[0]
             score = line[1]
-            #imp = import_r.zrangebyscore(db_name, score, score)
 
+
+            #imp = import_r.zrangebyscore(db_name, score, score)
             #if len(imp) == 0:
-                #import_r.zadd(db_name, body, score)
+            #    import_r.zadd(db_name, body, score)
 
             import_r.zadd(db_name, body, score)
 

@@ -18,12 +18,12 @@ db_name = "USDJPY_4_GMO_GAIKA_ORDER"
 db_name_history = "USDJPY_4_GMO_GAIKA_HISTORY"
 
 db_no = 8
-host = "win9"
+host = "win6"
 
-start = datetime(2024, 5, 1, 0)
+start = datetime(2024, 9, 30, 23)
 start_stp = int(time.mktime(start.timetuple()))
 
-end = datetime(2024, 6, 1,0)
+end = datetime(2024, 10, 31,23)
 end_stp = int(time.mktime(end.timetuple()))
 
 redis_db = redis.Redis(host=host, port=6379, db=db_no, decode_responses=True)

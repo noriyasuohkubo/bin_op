@@ -10,7 +10,8 @@ import numpy as np
 from util import *
 
 """
-thinkmarketsの発注履歴から理論上と実際取引のレートのスリップを日毎に取得する
+thinkmarketsの発注履歴から理論上と実際取引のレートのスリップを
+日毎に取得する
 """
 
 symbol = "USDJPY"
@@ -34,6 +35,7 @@ pip = 0.001 if symbol == "USDJPY" else 0.00001
 
 #レコード対象期間
 start_dt = datetime(2024, 8, 1, 23 )
+#start_dt = datetime(2024, 10, 23, 23 )
 end_dt = datetime(2025, 1, 1, 23)
 
 redis_db = redis.Redis(host=host, port=6379, db=db_no, decode_responses=True)

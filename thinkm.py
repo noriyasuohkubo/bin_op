@@ -75,14 +75,13 @@ def get_trade_cnt(conf, redis_db, base_t_just):
 
     return len(result)
 
-def get_pair(conf, driver, line_num):
+def get_pair(conf, driver, history_trE):
     wait = WebDriverWait(driver, 4)
 
-    tmp_path = conf.HISTORY_TR_PAIR.replace("NUM", str(line_num + 1))
-    pair = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).text
+    #tmp_path = conf.HISTORY_TR_PATH.replace("NUM", str(line_num + 1))
+    #history_trE = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path)))
 
-    tmp_path = conf.HISTORY_TR_PATH.replace("NUM", str(line_num + 1))
-    history_trE = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path)))
+    pair = history_trE.find_element(By.XPATH, conf.HISTORY_TR_PAIR).text
 
     bet_type = history_trE.find_element(By.XPATH, conf.HISTORY_BET_TYPE).text
 
@@ -96,6 +95,8 @@ def get_pair(conf, driver, line_num):
     close_time = history_trE.find_element(By.XPATH, conf.HISTORY_CLOSE_TIME).text
 
     stoploss_rate = history_trE.find_element(By.XPATH, conf.HISTORY_STOPLOSS).text
+    if stoploss_rate == '':
+        stoploss_rate = ' '
 
     position_number = history_trE.find_element(By.XPATH, conf.HISITORY_POSITION_NUM).text
     #print(pair,bet_type, open_rate, close_rate, open_date, close_date, open_time, close_time, stoploss_rate)
@@ -106,7 +107,8 @@ def get_pair(conf, driver, line_num):
 def get_history_num(conf, driver):
     wait = WebDriverWait(driver, 5)
     history_numE = wait.until(EC.presence_of_element_located((By.XPATH, conf.HISTORY_NUM)))
-    history_num = int(history_numE.text.split("(")[1].split(")")[0])
+    #history_num = int(history_numE.text.split("(")[1].split(")")[0])
+    history_num = int(history_numE.text)
 
     return history_num
 
@@ -147,92 +149,114 @@ def regist_history_db(conf,driver, redis_db):
 
     # 履歴期間で一週間を選択
     wait.until(EC.presence_of_element_located((By.XPATH, conf.HISTORY_LIST_WEEK))).click()
+    # 履歴期間で一カ月を選択
+    #wait.until(EC.presence_of_element_located((By.XPATH, conf.HISTORY_LIST_MONTH))).click()
+
     time.sleep(5)
     # 履歴件数取得
     history_num = get_history_num(conf, driver)
+    print("history_num", history_num)
 
     if history_num !=0:
-        #開始日の降順にする
-        sortE = wait.until(EC.presence_of_element_located((By.XPATH, conf.OPEN_DAY_SORT)))
-        print(sortE.get_attribute("class"))
+        #建玉IDの降順にする
+        sortE = wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_ID)))
+        sortE.click()
+        time.sleep(5)
+        print("sortE:",sortE.text[-1])
 
-        if ('dx-sort-down' in sortE.get_attribute("class")) == False:
+        if sortE.text[-1] != '↓':
 
-            #降順になってなかったら二回クリックして降順にする
-            wait.until(EC.presence_of_element_located((By.XPATH, conf.OPEN_DATE_COL))).click()
-            time.sleep(10)
-            wait.until(EC.presence_of_element_located((By.XPATH, conf.OPEN_DATE_COL))).click()
-            time.sleep(10)
-            sortE = wait.until(EC.presence_of_element_located((By.XPATH, conf.OPEN_DAY_SORT)))
-            if ('dx-sort-down' in sortE.get_attribute("class")) == False:
-                #ソートできないのでエラー扱い
-                conf.LOGGER("regist_history_db cannnot sort")
-                raise Exception("regist_history_db cannnot sort")
+            #降順になってなかったら再度クリックして降順にする
+            sortE.click()
+            time.sleep(5)
+            sortE = wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_ID)))
+            print("sortE:", sortE.text[-1])
+            if sortE.text[-1] != '↓':
+                # 降順になってなかったら再度クリックして降順にする
+                sortE.click()
+                time.sleep(5)
+                sortE = wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_ID)))
+                if sortE.text[-1] != '↓':
+                    print("sortE:", sortE.text[-1])
+                    #ソートできないのでエラー扱い
+                    conf.LOGGER("regist_history_db cannnot sort")
+                    raise Exception("regist_history_db cannnot sort")
 
-    regist_cnt = 0
+        regist_cnt = 0
 
-    print("history_num",history_num)
+        newest_db_score = get_newest_history_score(conf, redis_db)
+        conf.LOGGER("newest db score:", newest_db_score)
+        conf.LOGGER("zremrangebyscore " + conf.DB_HISTORY_KEY + " " + str(newest_db_score) + " " + str(newest_db_score + 3600 * 24)) # in case of fail, remove sentence
 
-    db_score = get_newest_history_score(conf, redis_db)
-    conf.LOGGER("newest db score:", db_score)
-    conf.LOGGER("zremrangebyscore " + conf.DB_HISTORY_KEY + " " + str(db_score) + " " + str(db_score + 3600 * 24)) # in case of fail, remove sentence
-    for line_num in range(history_num):
-        pair,bet_type, open_rate, close_rate, open_date, close_date, open_time, close_time, stoploss_rate, position_number = get_pair(conf, driver, line_num)
-
-        tmp_list = [line_num, pair,bet_type, open_rate, close_rate, open_date, close_date, open_time, close_time, stoploss_rate]
-
+        finish_flg = False
         while True:
-            if "" in tmp_list:
-                #取得できない値がある場合は下にスクロールして取得しなおす
+
+            history_tbodyE = wait.until(EC.presence_of_element_located((By.XPATH, conf.HISTORY_TABLE)))
+            trs = history_tbodyE.find_elements(By.XPATH, "tr")
+
+            for history_trE in trs:
+                data_index = int(history_trE.get_attribute("data-index"))
+                pair,bet_type, open_rate, close_rate, open_date, close_date, open_time, close_time, stoploss_rate, position_number = get_pair(conf, driver, history_trE)
+
+                # レートをDBに登録
+                open_dt = datetime.datetime.strptime(open_date + " " + open_time, '%Y/%m/%d %H:%M:%S')
+                close_dt = datetime.datetime.strptime(close_date + " " + close_time, '%Y/%m/%d %H:%M:%S')
+
+                open_score = int(time.mktime(open_dt.timetuple()))
+                close_score = int(time.mktime(close_dt.timetuple()))
+
+                regist_score = open_score - (open_score % conf.LOOP_TERM)  # 発注時から遅れて約定されるので発注時のスコアを登録する
+
+                position_number = int(position_number.replace(",", ""))
+
+                tmp_list = [data_index, pair,bet_type, open_rate, close_rate, open_date, close_date, open_time, close_time, stoploss_rate, position_number]
+                print(tmp_list)
+
+                #既存レコードがないか確認
+                if newest_db_score == None or regist_score > newest_db_score:
+                    if pair == conf.PAIR:
+                        if bet_type == conf.BET_TYPE_BUY:
+                            bet_str = 'buy'
+                        elif bet_type == conf.BET_TYPE_SELL:
+                            bet_str = 'sell'
+                        else:
+                            conf.LOGGER("bet_type is incorrect", bet_type)
+                            raise Exception("bet_type is incorrect")
+
+                        child = {
+                            'bet_type': bet_str,
+                            'open_rate': open_rate,
+                            'close_rate': close_rate,
+                            'stoploss_rate': stoploss_rate, #値が設定されていなければ半角空白が入る
+                            'open_score': open_score,
+                            'close_score': close_score,
+                            'open_time': datetime.datetime.fromtimestamp(open_score).strftime('%Y/%m/%d %H:%M:%S'),
+                            'position_number': position_number,
+                        }
+
+                        result = redis_db.zrangebyscore(conf.DB_HISTORY_KEY, regist_score, regist_score)
+                        if len(result) == 0:
+                            redis_db.zadd(conf.DB_HISTORY_KEY, json.dumps(child), regist_score)
+                            regist_cnt += 1
+                else:
+                    #DB上で一番新しかったデータまで登録したので終わり
+                    finish_flg = True
+                    break
+
+                if data_index == history_num -1:
+                    #データをすべて登録したので終わり
+                    finish_flg = True
+                    break
+
+            if finish_flg == False:
+                #下にスクロールしてtrを取得しなおす
+                print("scroll")
                 pag.moveTo(x=conf.regist_history_db_x, y=conf.regist_history_db_y)
                 time.sleep(1)
-                pag.scroll(conf.regist_history_db_scroll) #-400で大体10行
+                pag.scroll(conf.regist_history_db_scroll)  # -400で大体10行
                 time.sleep(2)
-                pair, bet_type, open_rate, close_rate, open_date, close_date, open_time, close_time, stoploss_rate, position_number = get_pair(conf, driver, line_num)
-                tmp_list = [line_num, pair, bet_type, open_rate, close_rate, open_date, close_date, open_time,
-                            close_time, stoploss_rate]
             else:
                 break
-
-        print(tmp_list)
-
-        # レートをDBに登録
-        open_dt = datetime.datetime.strptime(open_date + " " + open_time, '%Y/%m/%d %H:%M:%S')
-        close_dt = datetime.datetime.strptime(close_date + " " + close_time, '%Y/%m/%d %H:%M:%S')
-
-        open_score = int(time.mktime(open_dt.timetuple()))
-        close_score = int(time.mktime(close_dt.timetuple()))
-
-        regist_score = open_score - (open_score % conf.LOOP_TERM)  # 発注時から遅れて約定されるので発注時のスコアを登録する
-
-        position_number = int(position_number.replace(",", ""))
-
-        #既存レコードがないか確認
-        if db_score == None or regist_score > db_score:
-            if pair == conf.PAIR:
-                if bet_type == '買い':
-                    bet_str = 'buy'
-                elif bet_type == '売り':
-                    bet_str = 'sell'
-                else:
-                    conf.LOGGER("bet_type is incorrect", bet_type)
-                    raise Exception("bet_type is incorrect")
-
-                child = {
-                    'bet_type': bet_str,
-                    'open_rate': open_rate,
-                    'close_rate': close_rate,
-                    'stoploss_rate': stoploss_rate, #値が設定されていなければ半角空白が入る
-                    'open_score': open_score,
-                    'close_score': close_score,
-                    'open_time': datetime.datetime.fromtimestamp(open_score).strftime('%Y/%m/%d %H:%M:%S'),
-                    'position_number': position_number,
-                }
-
-                redis_db.zadd(conf.DB_HISTORY_KEY, json.dumps(child), regist_score)
-                regist_cnt += 1
-        else:
-            break
 
     conf.LOGGER("history regist cnt:", regist_cnt)
 
@@ -410,13 +434,35 @@ def stop_obs(conf):
     pag.click()
     time.sleep(5)
 
+def get_past_tick(conf, base_t_just_score):
+    return_tick = []
+
+    redis_fx_db = redis.Redis(host=conf.FX_DATA_MACHINE, port=6379, db=conf.FX_DB_NO, decode_responses=True,
+                              socket_keepalive=False)
+
+    result = redis_fx_db.zrangebyscore(conf.FX_TICK_DB_NAME, get_decimal_sub(base_t_just_score, conf.REFER_TICK_SEC),
+                                       get_decimal_add(base_t_just_score, 1), withscores=True)
+    # conf.LOGGER(result)
+
+    for line in result:
+        #print("line:", line)
+        body = line[0]
+
+        tmps = json.loads(body)
+        ask = float(tmps["ask"])
+        bid = float(tmps["bid"])
+        tick_mid = float(get_decimal_divide(get_decimal_add(ask, ask), "2"))
+
+        return_tick.append(tick_mid)
+
+    return return_tick
 def get_predict(conf, base_t_just_score):
 
     cnt = 0
 
     while True:
         cnt += 1
-        if cnt > 30:
+        if cnt > 70:
             break
 
         result = redis_predict_db.zrangebyscore(conf.PREDICT_REQUEST_KEY, base_t_just_score, base_t_just_score, withscores=True)
@@ -594,11 +640,12 @@ def registRedis(conf, redis_db, score, child, key):
 
 def login(conf, driver):
     try:
+        """
         if conf.DEMO_FLG:
             driver.find_element(By.XPATH, conf.DEMO_SELECT_PATH).click()
         else:
             driver.find_element(By.XPATH, conf.LIVE_SELECT_PATH).click()
-
+        
         time.sleep(1)
 
         inputE = driver.find_element(By.XPATH, conf.ID_INPUT_PATH)
@@ -610,7 +657,7 @@ def login(conf, driver):
         inputE.clear()
         inputE.send_keys(conf.PW)
         time.sleep(1)
-
+        """
         driver.find_element(By.XPATH, conf.LOGIN_PATH).click()
     except Exception as e:
         conf.LOGGER("Error Occured!!:", tracebackPrint(e))
@@ -638,18 +685,24 @@ def get_position_num(conf, driver):
         position_numE = wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_NUM_PATH)))
 
         # position_numE = driver.find_element(By.XPATH, conf.POSITION_NUM_PATH)
-        position_num = int(position_numE.text.split("(")[1].split(")")[0])
+        #position_num = int(position_numE.text.split("(")[1].split(")")[0])
+        position_num = int(position_numE.text)
     except selenium.common.exceptions.StaleElementReferenceException as e:
         #conf.LOGGER("StaleElementReferenceException:conf.POSITION_NUM_PATH")
         position_numE = wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_NUM_PATH)))
         # position_numE = driver.find_element(By.XPATH, conf.POSITION_NUM_PATH)
-        position_num = int(position_numE.text.split("(")[1].split(")")[0])
+        #position_num = int(position_numE.text.split("(")[1].split(")")[0])
+        position_num = int(position_numE.text)
     except IndexError as e:
         #conf.LOGGER(e)
         #conf.LOGGER("position_numE.text:",position_numE.text)
         position_numE = wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_NUM_PATH)))
         # position_numE = driver.find_element(By.XPATH, conf.POSITION_NUM_PATH)
-        position_num = int(position_numE.text.split("(")[1].split(")")[0])
+        #position_num = int(position_numE.text.split("(")[1].split(")")[0])
+        position_num = int(position_numE.text)
+    except selenium.common.exceptions.TimeoutException as e:
+        raise Exception("cannnot get position_num timeout")
+
 
     return position_num
 
@@ -657,7 +710,8 @@ def get_history_num(conf, driver):
     wait = WebDriverWait(driver, 1)
 
     history_numE = wait.until(EC.presence_of_element_located((By.XPATH, conf.HISTORY_NUM)))
-    history_num = int(history_numE.text.split("(")[1].split(")")[0])
+    #history_num = int(history_numE.text.split("(")[1].split(")")[0])
+    history_num = int(history_numE.text)
 
     return history_num
 
@@ -721,7 +775,7 @@ def get_start_text(conf, driver, line_num=None):
         except selenium.common.exceptions.StaleElementReferenceException as e:
             start_text = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).text
         except selenium.common.exceptions.TimeoutException as e:
-            start_text = wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_1_START_TIME_PATH))).text
+            start_text = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).text
 
         if len(start_text.split(":")) != 3:
             # 正しく取得できていない場合もう一度取得
@@ -780,94 +834,66 @@ def chk_pair(conf, driver):
 
 
 def logout(conf, driver):
-    time.sleep(15)
-    cnt = 0
-    while True:
-        cnt += 1
-        try:
-            click_account(conf, driver)
-            time.sleep(15)
-            if conf.DEMO_FLG:
-                driver.find_element(By.XPATH, conf.LOG_OUT_DEMO).click()
-            else:
-                driver.find_element(By.XPATH, conf.LOG_OUT_LIVE).click()
-            break
-        except Exception as e:
-            try:
-                driver.find_element(By.XPATH, conf.LOG_OUT_LIVE2).click()
-                break
-            except Exception as e:
-                try:
-                    driver.find_element(By.XPATH, conf.LOG_OUT_LIVE3).click()
-                    break
-                except Exception as e:
-                    conf.LOGGER("logout click exception", cnt)
-                    time.sleep(2)
-        if cnt >= 5:
-            raise Exception("cannnot click logout button")
-    time.sleep(10)
+
+    try:
+        click_account(conf, driver)
+        time.sleep(15)
+        if conf.DEMO_FLG:
+            driver.find_element(By.XPATH, conf.LOG_OUT_DEMO).click()
+        else:
+            driver.find_element(By.XPATH, conf.LOG_OUT_LIVE).click()
+
+    except Exception as e:
+        pag.moveTo(x=conf.logout_x, y=conf.logout_y)
+        time.sleep(1)
+        pag.click()
+
+    time.sleep(2)
     driver.find_element(By.XPATH, conf.LOG_OUT_OK).click()
 
 # 全て決済する
 def do_deal_all(conf, driver, catch_except=True, sleep_time=5):
-
+    conf.LOGGER("do_deal_all")
     if catch_except:
         #例外キャッチする場合:すでにほかのエラーが出ていて残っているポジションをキャッチする場合
         try:
             wait = WebDriverWait(driver, 3)
             position_num = get_position_num(conf, driver)
-            wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_ALL_DEAL_BUTTON_PATH))).click()
+
+            #1件ずつ決済する
+            if position_num == 1:
+                wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_1_DEAL_PATH))).click()
+
+                deal_buttonE = find_again(conf, driver, conf.MODAL_POSITION_DEAL_BUTTON_PATH)
+                deal_buttonE.click()
+
+            else:
+                for line_num in reversed(range(position_num)):
+                    line_num  = line_num +2
+                    tmp_path = conf.POSITION_2_DEAL_PATH.replace("NUM", str(line_num))
+                    wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).click()
+                    deal_buttonE = find_again(conf, driver, conf.MODAL_POSITION_DEAL_BUTTON_PATH)
+                    deal_buttonE.click()
+
+                    time.sleep(0.3)  # 決済に要する時間待つ
+
+            """
+            #一度に決済する
+            #wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_ALL_DEAL_BUTTON_PATH))).click()
+            wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_ALL_DEAL_BUTTON_PATH_NEW))).click()
 
             if position_num == 1:
                 time.sleep(2)
-                tmp_path = conf.MODAL_POSITION_DEAL_BUTTON_PATH.replace("NUM", str(conf.MODAL_NUM_FIRST))
-                try:
-                    deal_buttonE = driver.find_element(By.XPATH, tmp_path)
-                    #deal_buttonE = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path)))
-                except selenium.common.exceptions.NoSuchElementException as e:
-                    tmp_path = conf.MODAL_POSITION_DEAL_BUTTON_PATH.replace("NUM", str(conf.MODAL_NUM_SECOND))
-                    try:
-                        deal_buttonE = driver.find_element(By.XPATH, tmp_path)
-                        # deal_buttonE = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path)))
-                    except selenium.common.exceptions.NoSuchElementException as e:
-                        #画面が自動更新されてモーダルでなくなった可能性がある
-                        modal_change(conf)
-                        tmp_path = conf.MODAL_POSITION_DEAL_BUTTON_PATH.replace("NUM", str(conf.MODAL_NUM_FIRST))
-                        try:
-                            deal_buttonE = driver.find_element(By.XPATH, tmp_path)
-                            # deal_buttonE = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path)))
-                        except selenium.common.exceptions.NoSuchElementException as e:
-                            tmp_path = conf.MODAL_POSITION_DEAL_BUTTON_PATH.replace("NUM", str(conf.MODAL_NUM_SECOND))
-                            deal_buttonE = driver.find_element(By.XPATH, tmp_path)
-                            # deal_buttonE = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path)))
-
+                deal_buttonE = find_again(conf, driver, conf.MODAL_POSITION_DEAL_BUTTON_PATH)
                 deal_buttonE.click()
 
             elif position_num > 1:
-                tmp_path = conf.MODAL_POSITION_ALL_DEAL_CONFIRM_BUTTON_PATH.replace("NUM", str(conf.MODAL_NUM_FIRST))
-                try:
-                    deal_buttonE = driver.find_element(By.XPATH, tmp_path)
-                    #deal_buttonE = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path)))
-                except selenium.common.exceptions.NoSuchElementException as e:
-                    tmp_path = conf.MODAL_POSITION_ALL_DEAL_CONFIRM_BUTTON_PATH.replace("NUM", str(conf.MODAL_NUM_SECOND))
-                    try:
-                        deal_buttonE = driver.find_element(By.XPATH, tmp_path)
-                        # deal_buttonE = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path)))
-                    except selenium.common.exceptions.NoSuchElementException as e:
-                        #画面が自動更新されてモーダルでなくなった可能性がある
-                        modal_change(conf)
-                        tmp_path = conf.MODAL_POSITION_DEAL_BUTTON_PATH.replace("NUM", str(conf.MODAL_NUM_FIRST))
-                        try:
-                            deal_buttonE = driver.find_element(By.XPATH, tmp_path)
-                            # deal_buttonE = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path)))
-                        except selenium.common.exceptions.NoSuchElementException as e:
-                            tmp_path = conf.MODAL_POSITION_DEAL_BUTTON_PATH.replace("NUM", str(conf.MODAL_NUM_SECOND))
-                            deal_buttonE = driver.find_element(By.XPATH, tmp_path)
-                            # deal_buttonE = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path)))
-
+                #deal_buttonE = find_again(conf, driver, conf.MODAL_POSITION_ALL_DEAL_CONFIRM_BUTTON_PATH)
+                deal_buttonE = find_again(conf, driver, conf.MODAL_POSITION_ALL_DEAL_CONFIRM_BUTTON_PATH_NEW)
                 deal_buttonE.click()
-
+            
             time.sleep(sleep_time)  # 決済に要する時間待つ
+            """
         except Exception as e:
             conf.LOGGER("Error Occured!!:", e)
             conf.LOGGER(tracebackPrint(e))
@@ -875,31 +901,39 @@ def do_deal_all(conf, driver, catch_except=True, sleep_time=5):
         #例外キャッチしない場合:まだほかのエラーが発生していない場合
         wait = WebDriverWait(driver, 3)
         position_num = get_position_num(conf, driver)
+
+        # 1件ずつ決済する
+        if position_num == 1:
+            wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_1_DEAL_PATH))).click()
+
+            deal_buttonE = find_again(conf, driver, conf.MODAL_POSITION_DEAL_BUTTON_PATH)
+            deal_buttonE.click()
+
+        else:
+            for line_num in reversed(range(position_num)):
+                line_num = line_num + 2
+                tmp_path = conf.POSITION_2_DEAL_PATH.replace("NUM", str(line_num))
+                wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).click()
+                deal_buttonE = find_again(conf, driver, conf.MODAL_POSITION_DEAL_BUTTON_PATH)
+                deal_buttonE.click()
+
+                time.sleep(0.3)  # 決済に要する時間待つ
+
+        """
+        #一度に決済する
         wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_ALL_DEAL_BUTTON_PATH))).click()
         #time.sleep(2)
         if position_num == 1:
             time.sleep(2)
-            tmp_path = conf.MODAL_POSITION_DEAL_BUTTON_PATH.replace("NUM", str(conf.MODAL_NUM_FIRST))
-            try:
-                deal_buttonE = driver.find_element(By.XPATH, tmp_path)
-                # deal_buttonE = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path)))
-            except selenium.common.exceptions.NoSuchElementException as e:
-                tmp_path = conf.MODAL_POSITION_DEAL_BUTTON_PATH.replace("NUM", str(conf.MODAL_NUM_SECOND))
-                deal_buttonE = driver.find_element(By.XPATH, tmp_path)
-                # deal_buttonE = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path)))
+            deal_buttonE = find_again(conf, driver, conf.MODAL_POSITION_DEAL_BUTTON_PATH)
             deal_buttonE.click()
 
         elif position_num > 1:
-            tmp_path = conf.MODAL_POSITION_ALL_DEAL_CONFIRM_BUTTON_PATH.replace("NUM", str(conf.MODAL_NUM_FIRST))
-            try:
-                deal_buttonE = driver.find_element(By.XPATH, tmp_path)
-                # deal_buttonE = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path)))
-            except selenium.common.exceptions.NoSuchElementException as e:
-                tmp_path = conf.MODAL_POSITION_ALL_DEAL_CONFIRM_BUTTON_PATH.replace("NUM", str(conf.MODAL_NUM_SECOND))
-                deal_buttonE = driver.find_element(By.XPATH, tmp_path)
-                # deal_buttonE = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path)))
+            deal_buttonE = find_again(conf, driver, conf.MODAL_POSITION_ALL_DEAL_CONFIRM_BUTTON_PATH)
             deal_buttonE.click()
+
         time.sleep(sleep_time)  # 決済に要する時間待つ
+        """
 
 #取引開始時間を見て決済時間が来ているならTrueを返す
 #新規発注してから約定まで数秒かかるが、それがなかったものとして指定予想時間が経過しているかをチェックする
@@ -949,7 +983,7 @@ def do_trail_stoploss(conf, start_rate, trail_stoploss, now_close, position_type
     return trail_stoploss
 
 #延長判断する
-def do_ext(conf, start_text, position_type, sign_ext, base_t_just_dt, probe_up, probe_dw, order_score, position_num):
+def do_ext(conf, start_text, position_type, sign_ext, base_t_just_dt, order_score, position_num):
     do_ext_flg = None #延長判定の結果、延長するばあいにTrue
     ext_flg = None #決済しない場合にTrue
 
@@ -980,12 +1014,10 @@ def do_ext(conf, start_text, position_type, sign_ext, base_t_just_dt, probe_up, 
 
     if (passed - trade_ext_start_tmp) % trade_ext_term_tmp == 0:
         if position_type == 0 and sign_ext ==0:
-            #conf.LOGGER("EXTEND:", start_text, probe_up)
             ext_flg = True
             do_ext_flg = True
 
         elif position_type == 2 and sign_ext ==2:
-            #conf.LOGGER("EXTEND:", start_text, probe_dw)
             ext_flg = True
             do_ext_flg = True
 
@@ -998,42 +1030,54 @@ def do_ext(conf, start_text, position_type, sign_ext, base_t_just_dt, probe_up, 
 
     # トレード指定対象外時間なら延長しない
     if do_ext_flg == True or ext_flg == True:
+        if conf.IMPORTANT_INDEX.is_except(tmp_dt.timestamp()):
+            do_ext_flg = False
+            ext_flg = False
+        """
         for time_range in conf.EXCEPT_DATETIME:
             start_time_range, end_time_range = time_range
             if start_time_range <= tmp_dt and tmp_dt <= end_time_range:
                 do_ext_flg = False
                 ext_flg = False
                 break
-
+        """
     return ext_flg, do_ext_flg
 
-#パスが都度変わる場合に再度エレメントを取得しなおす
-def get_again(conf, driver, path):
-    tmp_path = path.replace("NUM", str(conf.MODAL_NUM_FIRST))
-    try:
-        correct_num = conf.MODAL_NUM_FIRST
-        element = driver.find_element(By.XPATH, tmp_path)
-    except selenium.common.exceptions.NoSuchElementException as e:
-        correct_num = conf.MODAL_NUM_SECOND
-        tmp_path = path.replace("NUM", str(conf.MODAL_NUM_SECOND))
-        element = driver.find_element(By.XPATH, tmp_path)
-
-    return [element,correct_num]
-
 #パスが都度変わる場合に再度クリックする
-def click_again(conf, driver, path):
-    tmp_path = path.replace("NUM", str(conf.MODAL_NUM_FIRST))
-    try:
-        correct_num = conf.MODAL_NUM_FIRST
-        element = driver.find_element(By.XPATH, tmp_path)
-        element.click()
-    except selenium.common.exceptions.NoSuchElementException as e:
-        correct_num = conf.MODAL_NUM_SECOND
-        tmp_path = path.replace("NUM", str(conf.MODAL_NUM_SECOND))
-        element = driver.find_element(By.XPATH, tmp_path)
-        element.click()
+def find_again(conf, driver, path):
 
-    return correct_num
+    try_cnt = 0
+    while True:
+        try_cnt += 1
+
+        cnt = conf.MODAL_NUM
+        tmp_path = path.replace("NUM", str(cnt))
+
+        try:
+            element = driver.find_element(By.XPATH, tmp_path)
+            #conf.LOGGER("conf.MODAL_NUM:", conf.MODAL_NUM)
+            return  element
+
+        except selenium.common.exceptions.NoSuchElementException as e:
+            for n in conf.MODAL_NUMS:
+                tmp_path = path.replace("NUM", str(n))
+                try:
+                    element = driver.find_element(By.XPATH, tmp_path)
+                except selenium.common.exceptions.NoSuchElementException as e2:
+                    continue
+
+                conf.MODAL_NUM = n
+                conf.LOGGER("conf.MODAL_NUM:",conf.MODAL_NUM)
+                return element
+
+            #モーダルがまだ出現してないためにエレメント取得できなかった可能性があるので少しまってもう一周させる
+            if try_cnt == 1:
+                time.sleep(1)
+                conf.LOGGER("retry find_again")
+                continue
+
+
+            raise Exception("cannot get correct modal_num")
 
 # ワンクリック注文
 def oneclick_order(conf, driver, sign):
@@ -1072,8 +1116,8 @@ def oneclick_order_modal_test(conf, driver):
     time.sleep(0.2)
 
     modal_change(conf)
-    click_again(conf, driver,conf.ORDER_CANCEL_BUTTON )
-
+    element = find_again(conf, driver,conf.ORDER_CANCEL_BUTTON )
+    element.click()
     """
     set_amt(conf, driver)
     #買いボタン押下
@@ -1083,28 +1127,22 @@ def oneclick_order_modal_test(conf, driver):
 def detail_order_modal_test(conf, driver):
     wait = WebDriverWait(driver, 2)
     wait.until(EC.presence_of_element_located((By.XPATH, conf.BUY_SELECT_BUTTON_PATH))).click()
-    #wait.until(EC.presence_of_element_located((By.XPATH, conf.MODAL_CHOISE))).click()
     modal_change(conf)
 
-    position_inputE, correct_num = get_again(conf, driver, conf.MODAL_ORDER_POSITION_INPUT_PATH)
+    element = find_again(conf, driver, conf.MODAL_ORDER_POSITION_INPUT_PATH)
+    element.click()
+
+    position_inputE = find_again(conf, driver, conf.MODAL_ORDER_POSITION_INPUT_PATH)
     position_inputE.clear()
     position_inputE.send_keys("1000")
 
-    try:
-        tmp_path = conf.MODAL_ORDER_LIMIT_BUTTON_PATH.replace("NUM", str(correct_num))
-        driver.find_element(By.XPATH, tmp_path).click()
-    except selenium.common.exceptions.NoSuchElementException as e:
-        tmp_path = '/html/body/div[NUM]/div/div/div/div/div[2]/div[2]/div[7]/div/div[2]/div/label'.replace("NUM", str(correct_num))
-        driver.find_element(By.XPATH, tmp_path).click()
+    find_again(conf, driver, conf.MODAL_ORDER_LIMIT_BUTTON_PATH).click()
 
     # 売買ボタン押下
-    tmp_path = conf.MODAL_TRADE_BUTTON_PATH.replace("NUM", str(correct_num))
-    wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).click()
+    wait.until(EC.presence_of_element_located((By.XPATH, find_again(conf, driver, conf.MODAL_TRADE_BUTTON_PATH)))).click()
     # 売買確定ボタン押下
-    tmp_path = conf.MODAL_TRADE_BUTTON2_PATH.replace("NUM", str(correct_num))
-    wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).click()
+    wait.until(EC.presence_of_element_located((By.XPATH, find_again(conf, driver, conf.MODAL_TRADE_BUTTON2_PATH)))).click()
     time.sleep(8)
-
 
 # 詳細注文画面から注文
 def detail_order(conf, driver, sign, stoploss):
@@ -1115,8 +1153,6 @@ def detail_order(conf, driver, sign, stoploss):
     # wait.until(EC.presence_of_element_located((By.XPATH, conf.ORDER_SELECT_BUTTON_PATH))).click()
 
     go_order = True
-    first_num = conf.MODAL_NUM_FIRST
-    second_num = conf.MODAL_NUM_SECOND
     if sign == 0:  # 買いを選択
         try:
             wait.until(EC.presence_of_element_located((By.XPATH, conf.BUY_SELECT_BUTTON_PATH))).click()
@@ -1144,43 +1180,23 @@ def detail_order(conf, driver, sign, stoploss):
     if go_order:
         # 別のモーダル画面からの注文
         # ポジション数入力
-
-        tmp_path = conf.MODAL_ORDER_POSITION_INPUT_PATH.replace("NUM", str(first_num))
-        try:
-            position_inputE = driver.find_element(By.XPATH, tmp_path)
-        except selenium.common.exceptions.NoSuchElementException as e:
-            first_num = second_num
-            tmp_path = conf.MODAL_ORDER_POSITION_INPUT_PATH.replace("NUM", str(first_num))
-            position_inputE = driver.find_element(By.XPATH, tmp_path)
+        position_inputE = find_again(conf, driver, conf.MODAL_ORDER_POSITION_INPUT_PATH)
 
         position_inputE.clear()
         position_inputE.send_keys(conf.AMT)
 
         # 逆指値指定ボタン押下
-        try:
-            tmp_path = conf.MODAL_ORDER_LIMIT_BUTTON_PATH.replace("NUM", str(first_num))
-            driver.find_element(By.XPATH, tmp_path).click()
-            # 逆指値指定
-            tmp_path = conf.MODAL_ORDER_LIMIT_INPUT_PATH.replace("NUM", str(first_num))
-            limitE = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path)))
-            limitE.clear()
-            limitE.send_keys(stoploss)
-        except selenium.common.exceptions.NoSuchElementException as e:
-            tmp_path = '/html/body/div[NUM]/div/div/div/div/div[2]/div[2]/div[7]/div/div[2]/div/label'.replace("NUM",str(first_num))
-            driver.find_element(By.XPATH, tmp_path).click()
-            # 逆指値指定
-            tmp_path = '/html/body/div[NUM]/div/div/div/div/div[2]/div[2]/div[7]/div[2]/div/div[1]/div/input'.replace("NUM", str(first_num))
-            limitE = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path)))
-            limitE.clear()
-            limitE.send_keys(stoploss)
+        find_again(conf, driver, conf.MODAL_ORDER_LIMIT_BUTTON_PATH).click()
+        # 逆指値指定
+        limitE = find_again(conf, driver, conf.MODAL_ORDER_LIMIT_INPUT_PATH)
+        limitE.clear()
+        limitE.send_keys(stoploss)
 
         # 売買ボタン押下
-        tmp_path = conf.MODAL_TRADE_BUTTON_PATH.replace("NUM", str(first_num))
-        wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).click()
+        find_again(conf, driver, conf.MODAL_TRADE_BUTTON_PATH).click()
 
         # 売買確定ボタン押下
-        tmp_path = conf.MODAL_TRADE_BUTTON2_PATH.replace("NUM", str(first_num))
-        wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).click()
+        find_again(conf, driver, conf.MODAL_TRADE_BUTTON2_PATH).click()
 
         """
         #画面右の画面からの注文
@@ -1206,20 +1222,8 @@ def detail_order(conf, driver, sign, stoploss):
         """
     else:
         # キャンセルボタン押下
-        tmp_path = conf.MODAL_ORDER_SELECT_CLOSE_PATH.replace("NUM", str(first_num))
-        try:
-            cancelE = driver.find_element(By.XPATH, tmp_path)
-        except selenium.common.exceptions.NoSuchElementException as e:
-            first_num = second_num
-            tmp_path = conf.MODAL_ORDER_SELECT_CLOSE_PATH.replace("NUM", str(first_num))
-            cancelE = driver.find_element(By.XPATH, tmp_path)
-
+        cancelE = find_again(conf, driver, conf.MODAL_ORDER_SELECT_CLOSE_PATH)
         cancelE.click()
-        """
-        #画面右の画面からの注文の場合
-        wait.until(EC.presence_of_element_located((By.XPATH, conf.ORDER_SELECT_CLOSE_PATH))).click()
-        """
-
 
 def onemore_click(path, driver):
     try:
@@ -1252,51 +1256,51 @@ def set_stoploss(conf, driver, close):
         try:
             slE = driver.find_element(By.XPATH, conf.POSITION_1_STOPLOSS)
         except Exception as e:
+
+            # 逆指値指定がない場合なので設定する
             try:
-                # 逆指値指定がない場合なので設定する
+                position_type_str = wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_1_TYPE_PATH))).text
+            except selenium.common.exceptions.StaleElementReferenceException as e:
+                #conf.LOGGER("StaleElementReferenceException:conf.POSITION_1_TYPE_PATH")
+                position_type_str = wait.until(
+                    EC.presence_of_element_located((By.XPATH, conf.POSITION_1_TYPE_PATH))).text
+            except selenium.common.exceptions.TimeoutException as e:
+                #conf.LOGGER("TimeoutException:conf.POSITION_1_TYPE_PATH")
+                position_type_str = wait.until(
+                    EC.presence_of_element_located((By.XPATH, conf.POSITION_1_TYPE_PATH))).text
+
+            if position_type_str == conf.BET_TYPE_BUY:
+                position_type = 0
+            elif position_type_str == conf.BET_TYPE_SELL:
+                position_type = 2
+
+            try:
+                modal_open_button = wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_1_STOPLOSS_BUTTON_PATH)))
+                modal_open_button.click()
+            except selenium.common.exceptions.StaleElementReferenceException as e:
                 try:
-                    position_type_str = wait.until(
-                        EC.presence_of_element_located((By.XPATH, conf.POSITION_1_TYPE_PATH))).text
-                except selenium.common.exceptions.StaleElementReferenceException as e:
-                    #conf.LOGGER("StaleElementReferenceException:conf.POSITION_1_TYPE_PATH")
-                    position_type_str = wait.until(
-                        EC.presence_of_element_located((By.XPATH, conf.POSITION_1_TYPE_PATH))).text
-                except selenium.common.exceptions.TimeoutException as e:
-                    #conf.LOGGER("TimeoutException:conf.POSITION_1_TYPE_PATH")
-                    position_type_str = wait.until(
-                        EC.presence_of_element_located((By.XPATH, conf.POSITION_1_TYPE_PATH))).text
+                    # モーダルが開いている状態である場合は閉じてストップロス設定しないで次のターンにストップロスを任せる
+                    close_button = driver.find_element(By.XPATH, conf.MODAL_CANCEL)
+                    close_button.click()
+                except Exception as e:
+                    pass
 
-                if position_type_str == "買い":
-                    position_type = 0
-                elif position_type_str == "売り":
-                    position_type = 2
+                do_set_stoploss_flg = False
+                return do_set_stoploss_flg
+            time.sleep(0.3)
+            limitE = find_again(conf, driver, conf.MODAL_POSITION_STOPLOSS_INPUT)
+            limitE.clear()
+            if position_type == 0:  # 買いを選択
+                limitE.send_keys(conf.RATE_FORMAT.format(close - stoploss))
 
-                driver.find_element(By.XPATH, conf.POSITION_1_STOPLOSS_BUTTON_PATH).click()
+            elif position_type == 2:  # 売りを選択
+                limitE.send_keys(conf.RATE_FORMAT.format(close + stoploss))
 
-                first_num = conf.MODAL_NUM_FIRST
-                second_num = conf.MODAL_NUM_SECOND
-                tmp_path = conf.MODAL_POSITION_STOPLOSS_INPUT.replace("NUM", str(first_num))
-                try:
-                    limitE = driver.find_element(By.XPATH, tmp_path)
-                except selenium.common.exceptions.NoSuchElementException as e:
-                    first_num = second_num
-                    tmp_path = conf.MODAL_POSITION_STOPLOSS_INPUT.replace("NUM", str(first_num))
-                    limitE = driver.find_element(By.XPATH, tmp_path)
+            #conf.LOGGER(close, stoploss)
 
-                limitE.clear()
-                if position_type == 0:  # 買いを選択
-                    limitE.send_keys(conf.RATE_FORMAT.format(close - stoploss))
-                    # conf.LOGGER(close - stoploss)
-                elif position_type == 2:  # 売りを選択
-                    limitE.send_keys(conf.RATE_FORMAT.format(close + stoploss))
-
-                # 決定ボタン押下
-                tmp_path = conf.MODAL_POSITION_STOPLOSS_ENTER_BUTTON.replace("NUM", str(first_num))
-                wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).click()
-                do_set_stoploss_flg = True
-
-            except Exception as e2:
-                conf.EXCEPT_CNT += 1
+            # 決定ボタン押下
+            find_again(conf, driver, conf.MODAL_POSITION_STOPLOSS_ENTER_BUTTON).click()
+            do_set_stoploss_flg = True
 
     elif position_num > 1:
         # 2ポジションある場合にポジションが展開表示されているか確認
@@ -1308,52 +1312,53 @@ def set_stoploss(conf, driver, close):
                 tmp_path = conf.POSITION_2_STOPLOSS.replace("NUM", str(line_num))
                 slE = driver.find_element(By.XPATH, tmp_path)
             except Exception as e:
+                # 逆指値指定がない場合なので設定する
+                tmp_path = conf.POSITION_2_TYPE_PATH.replace("NUM", str(line_num))
                 try:
-                    # 逆指値指定がない場合なので設定する
-                    tmp_path = conf.POSITION_2_STOPLOSS_BUTTON_PATH.replace("NUM", str(line_num))
-                    driver.find_element(By.XPATH, tmp_path).click()
+                    position_type_str = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).text
+                except selenium.common.exceptions.StaleElementReferenceException as e:
+                    #conf.LOGGER("StaleElementReferenceException:conf.POSITION_2_TYPE_PATH")
+                    position_type_str = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).text
+                except selenium.common.exceptions.TimeoutException as e:
+                    #conf.LOGGER("TimeoutException:conf.POSITION_2_TYPE_PATH")
+                    position_type_str = wait.until(
+                        EC.presence_of_element_located((By.XPATH, tmp_path))).text
 
-                    tmp_path = conf.POSITION_2_TYPE_PATH.replace("NUM", str(line_num))
+                if position_type_str == conf.BET_TYPE_BUY:
+                    position_type = 0
+                elif position_type_str == conf.BET_TYPE_SELL:
+                    position_type = 2
+
+                tmp_path = conf.POSITION_2_STOPLOSS_BUTTON_PATH.replace("NUM", str(line_num))
+                try:
+                    modal_open_button = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path)))
+                    modal_open_button.click()
+                except selenium.common.exceptions.StaleElementReferenceException as e:
                     try:
-                        position_type_str = wait.until(
-                            EC.presence_of_element_located((By.XPATH, tmp_path))).text
-                    except selenium.common.exceptions.StaleElementReferenceException as e:
-                        #conf.LOGGER("StaleElementReferenceException:conf.POSITION_2_TYPE_PATH")
-                        position_type_str = wait.until(
-                            EC.presence_of_element_located((By.XPATH, tmp_path))).text
-                    except selenium.common.exceptions.TimeoutException as e:
-                        #conf.LOGGER("TimeoutException:conf.POSITION_2_TYPE_PATH")
-                        position_type_str = wait.until(
-                            EC.presence_of_element_located((By.XPATH, tmp_path))).text
+                        #モーダルが開いている状態である場合は閉じてストップロス設定しないで次のターンにストップロスを任せる
+                        close_button = driver.find_element(By.XPATH, conf.MODAL_CANCEL)
+                        close_button.click()
+                    except Exception as e:
+                        pass
 
-                    if position_type_str == "買い":
-                        position_type = 0
-                    elif position_type_str == "売り":
-                        position_type = 2
+                    do_set_stoploss_flg = False
+                    return do_set_stoploss_flg
 
-                    first_num = conf.MODAL_NUM_FIRST
-                    second_num = conf.MODAL_NUM_SECOND
-                    tmp_path = conf.MODAL_POSITION_STOPLOSS_INPUT.replace("NUM", str(first_num))
-                    try:
-                        limitE = driver.find_element(By.XPATH, tmp_path)
-                    except selenium.common.exceptions.NoSuchElementException as e:
-                        first_num = second_num
-                        tmp_path = conf.MODAL_POSITION_STOPLOSS_INPUT.replace("NUM", str(first_num))
-                        limitE = driver.find_element(By.XPATH, tmp_path)
+                except selenium.common.exceptions.ElementClickInterceptedException as e:
+                    do_set_stoploss_flg = False
+                    return do_set_stoploss_flg
 
-                    limitE.clear()
-                    if position_type == 0:  # 買いを選択
-                        limitE.send_keys(conf.RATE_FORMAT.format(close - stoploss))
-                    elif position_type == 2:  # 売りを選択
-                        limitE.send_keys(conf.RATE_FORMAT.format(close + stoploss))
+                time.sleep(0.3)
+                limitE = find_again(conf, driver, conf.MODAL_POSITION_STOPLOSS_INPUT)
+                limitE.clear()
+                if position_type == 0:  # 買いを選択
+                    limitE.send_keys(conf.RATE_FORMAT.format(close - stoploss))
+                elif position_type == 2:  # 売りを選択
+                    limitE.send_keys(conf.RATE_FORMAT.format(close + stoploss))
 
-                    # 決定ボタン押下
-                    tmp_path = conf.MODAL_POSITION_STOPLOSS_ENTER_BUTTON.replace("NUM", str(first_num))
-                    wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).click()
-                    do_set_stoploss_flg = True
-
-                except Exception as e2:
-                    conf.EXCEPT_CNT +=1
+                # 決定ボタン押下
+                find_again(conf, driver, conf.MODAL_POSITION_STOPLOSS_ENTER_BUTTON).click()
+                do_set_stoploss_flg = True
 
     return do_set_stoploss_flg
 
@@ -1389,23 +1394,14 @@ def stoploss_update(conf, driver, position_type, close, prev_rate, position_num,
                 position_type_str = wait.until(
                     EC.presence_of_element_located((By.XPATH, conf.POSITION_1_TYPE_PATH))).text
 
-            if position_type_str == "買い":
+            if position_type_str == conf.BET_TYPE_BUY:
                 position_type = 0
-            elif position_type_str == "売り":
+            elif position_type_str == conf.BET_TYPE_SELL:
                 position_type = 2
 
             driver.find_element(By.XPATH, conf.POSITION_1_STOPLOSS_BUTTON_PATH).click()
 
-            first_num = conf.MODAL_NUM_FIRST
-            second_num = conf.MODAL_NUM_SECOND
-            tmp_path = conf.MODAL_POSITION_STOPLOSS_INPUT.replace("NUM", str(first_num))
-            try:
-                limitE = driver.find_element(By.XPATH, tmp_path)
-            except selenium.common.exceptions.NoSuchElementException as e:
-                first_num = second_num
-                tmp_path = conf.MODAL_POSITION_STOPLOSS_INPUT.replace("NUM", str(first_num))
-                limitE = driver.find_element(By.XPATH, tmp_path)
-
+            limitE = find_again(conf, driver, conf.MODAL_POSITION_STOPLOSS_INPUT)
             limitE.clear()
 
             if position_type == 0:  # 買いを選択
@@ -1417,8 +1413,8 @@ def stoploss_update(conf, driver, position_type, close, prev_rate, position_num,
             limitE.send_keys(stoploss_rate)
 
             # 決定ボタン押下
-            tmp_path = conf.MODAL_POSITION_STOMODAL_POSITION_STOPLOSS_ENTER_BUTTONPLOSS_INPUT.replace("NUM", str(first_num))
-            wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).click()
+            find_again(conf, driver, conf.MODAL_POSITION_STOMODAL_POSITION_STOPLOSS_ENTER_BUTTONPLOSS_INPUT).click()
+
         elif position_num > 1:
             # 2ポジションある場合にポジションが展開表示されているか確認
             tr_expand(conf, driver)
@@ -1429,32 +1425,22 @@ def stoploss_update(conf, driver, position_type, close, prev_rate, position_num,
 
             tmp_path = conf.POSITION_2_TYPE_PATH.replace("NUM", str(line_num))
             try:
-                position_type_str = wait.until(
-                    EC.presence_of_element_located((By.XPATH, tmp_path))).text
+                position_type_str = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).text
             except selenium.common.exceptions.StaleElementReferenceException as e:
                 #conf.LOGGER("StaleElementReferenceException:conf.POSITION_2_TYPE_PATH")
-                position_type_str = wait.until(
-                    EC.presence_of_element_located((By.XPATH, tmp_path))).text
+                position_type_str = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).text
             except selenium.common.exceptions.TimeoutException as e:
                 #conf.LOGGER("TimeoutException:conf.POSITION_2_TYPE_PATH")
-                position_type_str = wait.until(
-                    EC.presence_of_element_located((By.XPATH, tmp_path))).text
+                position_type_str = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).text
 
-            if position_type_str == "買い":
+            if position_type_str == conf.BET_TYPE_BUY:
                 position_type = 0
-            elif position_type_str == "売り":
+            elif position_type_str == conf.BET_TYPE_SELL:
                 position_type = 2
 
-            first_num = conf.MODAL_NUM_FIRST
-            second_num = conf.MODAL_NUM_SECOND
-            tmp_path = conf.MODAL_POSITION_STOPLOSS_INPUT.replace("NUM", str(first_num))
-            try:
-                limitE = driver.find_element(By.XPATH, tmp_path)
-            except selenium.common.exceptions.NoSuchElementException as e:
-                first_num = second_num
-                tmp_path = conf.MODAL_POSITION_STOPLOSS_INPUT.replace("NUM", str(first_num))
-                limitE = driver.find_element(By.XPATH, tmp_path)
+            limitE = find_again(conf, driver, conf.MODAL_POSITION_STOPLOSS_INPUT)
             limitE.clear()
+
             if position_type == 0:  # 買いを選択
                 stoploss_rate = get_decimal_sub(close, stoploss)
             elif position_type == 2:  # 売りを選択
@@ -1464,8 +1450,7 @@ def stoploss_update(conf, driver, position_type, close, prev_rate, position_num,
             limitE.send_keys(stoploss_rate)
 
             # 決定ボタン押下
-            tmp_path = conf.MODAL_POSITION_STOMODAL_POSITION_STOPLOSS_ENTER_BUTTONPLOSS_INPUT.replace("NUM", str(first_num))
-            wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).click()
+            find_again(conf, driver, conf.MODAL_POSITION_STOMODAL_POSITION_STOPLOSS_ENTER_BUTTONPLOSS_INPUT).click()
 
         conf.LOGGER("prev_rate change", return_rate, close)
         return_rate = close
@@ -1475,6 +1460,7 @@ def stoploss_update(conf, driver, position_type, close, prev_rate, position_num,
 
 # 2ポジションある場合にポジション表示を展開
 def tr_expand(conf, driver):
+    wait = WebDriverWait(driver, 1)
     tmp_cnt = 0
     while True:
         tmp_cnt += 1
@@ -1482,8 +1468,8 @@ def tr_expand(conf, driver):
             conf.LOGGER("tr element cannot get 5time over")
             raise Exception("tr element cannot get 5time over")
         try:
-            trE = driver.find_element(By.XPATH, conf.POSITION_1_TR)
-            tmp_text = trE.get_attribute("aria-expanded")
+            trE = wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_TABLE_PATH)))
+            tmp_text = trE.get_attribute("style")
             # きちんと属性表示されるまで取得
             if tmp_text != None:
                 break
@@ -1491,54 +1477,28 @@ def tr_expand(conf, driver):
         except selenium.common.exceptions.StaleElementReferenceException as e:
             time.sleep(0.01)
 
-    if tmp_text == "false":
-        # 展開されていない場合は展開する
-        onemore_click(conf.POSITION_EXPAND_PATH, driver)
-
+    tmp_height = float(tmp_text.split(" ")[1].split("px")[0])
+    if tmp_height <=50:
+        # 展開されていない場合(height:50px以内の場合)は展開する
+        #onemore_click(conf.POSITION_EXPAND_PATH, driver)
+        pag.moveTo(x=conf.expand_x, y=conf.expand_y)
+        pag.click()
 
 # ポジション欄を取引時間順にする
 def tr_sort(conf, driver):
     wait = WebDriverWait(driver, 1)
-    # 新規日付順になっているか確認する
-    try:
-        wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_DATE_PATH))).click()
-    except selenium.common.exceptions.StaleElementReferenceException as e:
-        # だめならもう一度トライ
-        #conf.LOGGER("StaleElementReferenceException:conf.POSITION_DATE_PATH")
-        wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_DATE_PATH))).click()
-    except selenium.common.exceptions.TimeoutException as e:
-        #conf.LOGGER("TimeoutException:conf.POSITION_DATE_PATH")
-        wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_DATE_PATH))).click()
-    time.sleep(0.1)  # ソートされる時間待つ
+    # 建玉IDの昇順(古いものが上)になっているか確認する
+    p_E = wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_ID_PATH)))
 
-    tmp_cnt = 0
-    while True:
-        tmp_cnt += 1
-        if tmp_cnt > 5:
-            conf.LOGGER("p_idE element cannot get 5time over")
-            raise Exception("p_idE element cannot get 5time over")
-        try:
-            # p_idE = driver.find_element(By.XPATH, conf.POSITION_DATE_PATH)
-            tmp_text2 = wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_DATE_PATH))).get_attribute(
-                "aria-sort")
-            # きちんと属性表示されるまで取得
-            if tmp_text2 != None:
-                break
-            time.sleep(0.01)
-        except selenium.common.exceptions.StaleElementReferenceException as e:
-            time.sleep(0.01)
+    if p_E.text[-1] != '↑':
+        p_E.click()
+        time.sleep(0.05)
+        p_E = wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_ID_PATH)))
 
-    # conf.LOGGER("aria-sort", tmp_text)
-    if tmp_text2 != "ascending":
-        try:
-            wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_DATE_PATH))).click()
-        except selenium.common.exceptions.StaleElementReferenceException as e:
-            #conf.LOGGER("StaleElementReferenceException2:conf.POSITION_DATE_PATH")
-            wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_DATE_PATH))).click()
-        except selenium.common.exceptions.TimeoutException as e:
-            #conf.LOGGER("TimeoutException2:conf.POSITION_DATE_PATH")
-            wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_DATE_PATH))).click()
-        time.sleep(0.1)  # ソートされる時間待つ
+        if p_E.text[-1] != '↑':
+            # ソートできてないのでエラー扱い
+            conf.LOGGER("position_id not sorted")
+            raise Exception("position_id not sorted")
 
 # 現在の損益を取得
 def get_now_profit_pips(conf, driver, position_num):
@@ -1615,7 +1575,10 @@ def deal_all(redis_db, conf, driver, position_num, start_text_stoploss_order_sco
 
 # 決済
 def deal(conf, driver, prev_deal_dict, base_t_just_dt, prev_deal_start_time, sign_ext, spread,
-                     now_close, prev_rate_dict, start_rate_dict, probe_up ,probe_dw, ordered_dict, exception_cnt):
+                     now_close, prev_rate_dict, start_rate_dict, ordered_dict, exception_cnt):
+
+    take_deal = None
+    start_deal = time.perf_counter()
     # if len(prev_rate_dict.keys()) != 0:
     #    conf.LOGGER("prev_rate_dict:",prev_rate_dict)
     wait = WebDriverWait(driver, 1)
@@ -1632,6 +1595,7 @@ def deal(conf, driver, prev_deal_dict, base_t_just_dt, prev_deal_start_time, sig
     do_ext_flg = False
 
     position_num = get_position_num(conf, driver)
+    #print("position_num:",position_num)
     # 前回決済した時間から一定時間が過ぎていたら決済
     # LOOP_TERMごとに決済してしまうと、例えば2秒ごとに決済で、取引間隔が4秒なら、決済した取引が画面上から消されるまで時間がかかるため、残ってしまい次に古い取引が
     # 規定時間が過ぎていないのに前の取引の取引開始時間を取得してしまうことによって予期せぬ決済をしてしまうため
@@ -1733,16 +1697,16 @@ def deal(conf, driver, prev_deal_dict, base_t_just_dt, prev_deal_start_time, sig
                     position_type_str = wait.until(
                         EC.presence_of_element_located((By.XPATH, conf.POSITION_1_TYPE_PATH))).text
 
-                if position_type_str == "買い":
+                if position_type_str == conf.BET_TYPE_BUY:
                     position_type = 0
-                elif position_type_str == "売り":
+                elif position_type_str == conf.BET_TYPE_SELL:
                     position_type = 2
                 else:
                     # 予期せぬ値なので再度トライ
                     position_type_str = wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_1_TYPE_PATH))).text
-                    if position_type_str == "買い":
+                    if position_type_str == conf.BET_TYPE_BUY:
                         position_type = 0
-                    elif position_type_str == "売り":
+                    elif position_type_str == conf.BET_TYPE_SELL:
                         position_type = 2
                     else:
                         conf.LOGGER("position_type_str not invalid:", position_type_str)
@@ -1764,7 +1728,7 @@ def deal(conf, driver, prev_deal_dict, base_t_just_dt, prev_deal_start_time, sig
                     ext_flg = False
                     if manual_stoploss_flg == False and trail_stoploss_flg == False:
                         if conf.EXT_FLG:
-                            ext_flg, do_ext_flg = do_ext(conf, start_text, position_type, sign_ext, base_t_just_dt, probe_up, probe_dw, order_score, position_num)
+                            ext_flg, do_ext_flg = do_ext(conf, start_text, position_type, sign_ext, base_t_just_dt, order_score, position_num)
 
                     if ext_flg == False or manual_stoploss_flg or trail_stoploss_flg:
                         #prev_deal_dictに登録　すでに値があったら偶然同じstart_text, stoplossのものがあったということなので一旦全決済
@@ -1778,18 +1742,11 @@ def deal(conf, driver, prev_deal_dict, base_t_just_dt, prev_deal_start_time, sig
                         try:
                             wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_1_DEAL_PATH))).click()
                         except selenium.common.exceptions.StaleElementReferenceException as e:
-                            #conf.LOGGER("StaleElementReferenceException:conf.POSITION_1_DEAL_PATH")
                             wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_1_DEAL_PATH))).click()
                         except selenium.common.exceptions.TimeoutException as e:
-                            #conf.LOGGER("TimeoutException:conf.POSITION_1_DEAL_PATH")
                             wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_1_DEAL_PATH))).click()
 
-                        tmp_path = conf.MODAL_POSITION_DEAL_BUTTON_PATH.replace("NUM", str(conf.MODAL_NUM_FIRST))
-                        try:
-                            deal_buttonE = driver.find_element(By.XPATH, tmp_path)
-                        except selenium.common.exceptions.NoSuchElementException as e:
-                            tmp_path = conf.MODAL_POSITION_DEAL_BUTTON_PATH.replace("NUM", str(conf.MODAL_NUM_SECOND))
-                            deal_buttonE = driver.find_element(By.XPATH, tmp_path)
+                        deal_buttonE = find_again(conf, driver, conf.MODAL_POSITION_DEAL_BUTTON_PATH)
 
                         try:
                             position_take = get_decimal_sub(position_start_time_dt_timestamp, order_score)
@@ -1808,6 +1765,7 @@ def deal(conf, driver, prev_deal_dict, base_t_just_dt, prev_deal_start_time, sig
                             order_dict["end_rate"] = now_close
                             order_dict["amt"] = int(conf.AMT)
                             order_dict["close_spread"] = spread
+                            order_dict["take_deal"] = time.perf_counter() - start_deal
 
                             deal_buttonE.click()
 
@@ -1868,6 +1826,7 @@ def deal(conf, driver, prev_deal_dict, base_t_just_dt, prev_deal_start_time, sig
                     position_times.append(start_text)
 
         elif position_num >= 2:
+
             start_take1 = time.perf_counter()
             # 2ポジションある場合にポジションが展開表示されているか確認
             tr_expand(conf, driver)
@@ -1875,8 +1834,8 @@ def deal(conf, driver, prev_deal_dict, base_t_just_dt, prev_deal_start_time, sig
             deal_take1 = time.perf_counter() - start_take1
 
             start_take2 = time.perf_counter()
-            # ポジション欄を取引時間順にする
-            #tr_sort(conf, driver)
+            # ポジション欄が建玉IDの昇順か確認
+            tr_sort(conf, driver)
 
             #先にstart_textと発注スコアのみ取得
             order_sorted = sorted(ordered_dict.items(), key=lambda x: x[0], reverse=False) #発注した日時の古い順に並び替え
@@ -1985,16 +1944,16 @@ def deal(conf, driver, prev_deal_dict, base_t_just_dt, prev_deal_start_time, sig
                     except selenium.common.exceptions.TimeoutException as e:
                         position_type_str = wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_1_TYPE_PATH))).text
 
-                    if position_type_str == "買い":
+                    if position_type_str == conf.BET_TYPE_BUY:
                         position_type = 0
-                    elif position_type_str == "売り":
+                    elif position_type_str == conf.BET_TYPE_SELL:
                         position_type = 2
                     else:
                         # 予期せぬ値なので再度トライ
                         position_type_str = wait.until(EC.presence_of_element_located((By.XPATH, tmp_path))).text
-                        if position_type_str == "買い":
+                        if position_type_str == conf.BET_TYPE_BUY:
                             position_type = 0
-                        elif position_type_str == "売り":
+                        elif position_type_str == conf.BET_TYPE_SELL:
                             position_type = 2
                         else:
                             conf.LOGGER("position_type_str not invalid:", position_type_str)
@@ -2017,7 +1976,7 @@ def deal(conf, driver, prev_deal_dict, base_t_just_dt, prev_deal_start_time, sig
 
                         if manual_stoploss_flg == False and trail_stoploss_flg == False:
                             if conf.EXT_FLG:
-                                ext_flg, do_ext_flg_tmp = do_ext(conf, start_text, position_type, sign_ext, base_t_just_dt, probe_up, probe_dw, order_score, position_num)
+                                ext_flg, do_ext_flg_tmp = do_ext(conf, start_text, position_type, sign_ext, base_t_just_dt, order_score, position_num)
                                 if do_ext_flg_tmp:
                                     # do_ext_flg_tmpを直接do_ext_flgに代入してしまうと、
                                     # ループの中なので1番目が延長でも2番目が延長しなければFalseになる可能性があるためdo_ext_flg_tmppを用いる
@@ -2079,13 +2038,7 @@ def deal(conf, driver, prev_deal_dict, base_t_just_dt, prev_deal_start_time, sig
                                         wait.until(EC.presence_of_element_located((By.XPATH, conf.POSITION_1_DEAL_PATH))).click()
 
                                     deal_take4 = time.perf_counter() - start_take4
-
-                                    tmp_path = conf.MODAL_POSITION_DEAL_BUTTON_PATH.replace("NUM",str(conf.MODAL_NUM_FIRST))
-                                    try:
-                                        deal_buttonE = driver.find_element(By.XPATH, tmp_path)
-                                    except selenium.common.exceptions.NoSuchElementException as e:
-                                        tmp_path = conf.MODAL_POSITION_DEAL_BUTTON_PATH.replace("NUM",str(conf.MODAL_NUM_SECOND))
-                                        deal_buttonE = driver.find_element(By.XPATH, tmp_path)
+                                    deal_buttonE = find_again(conf, driver, conf.MODAL_POSITION_DEAL_BUTTON_PATH)
 
                                     deal_buttonE.click()
 
@@ -2096,7 +2049,7 @@ def deal(conf, driver, prev_deal_dict, base_t_just_dt, prev_deal_start_time, sig
                                 if conf.DEAL_TYPE == 'ONE':
                                     # このターンでもう一度決済するかもしれないので少しスリープしてタイミングをずらす
                                     # スリープしないとモーダル画面が残ってしまい、うまく次のポジションの処理ができない
-                                    time.sleep(0.15)
+                                    time.sleep(0.05)
 
                             except selenium.common.exceptions.ElementClickInterceptedException as e:
                                 conf.LOGGER("deal retry")
@@ -2220,6 +2173,22 @@ def main_loop(conf, driver, second_flg=False):
     exception_cnt = 0
 
     try:
+
+        if conf.DEAL_ALL_ONLY:
+            #全決済のみ行う
+            conf.LOGGER("DEAL_ALL_ONLY START")
+
+            tmp_p_num = get_position_num(conf, driver)
+            if tmp_p_num != 0:
+                conf.LOGGER("POSITION NUM IS NOT 0!!", tmp_p_num)
+                # 決済する
+                do_deal_all(conf, driver,)
+
+            conf.LOGGER("DEAL_ALL_ONLY END")
+
+            return_code = 3
+            return return_code
+
         #取引履歴DB登録
         start_regist_history = time.perf_counter()
         conf.LOGGER("start regist history")
@@ -2308,7 +2277,7 @@ def main_loop(conf, driver, second_flg=False):
             #ワンクリックが有効か確認
             oneclick_buttonE = driver.find_element(By.XPATH, conf.SELECT_ONECLICK_TOGGLE)
             cl = oneclick_buttonE.get_attribute('class')
-            if ('WtrToggle_active__1kW2l' in cl) == False:
+            if ('_active_jlju0_18' in cl) == False:
                 conf.LOGGER("oneclick toggle not set", cl)
                 err_flg = True
         else:
@@ -2524,6 +2493,31 @@ def main_loop(conf, driver, second_flg=False):
 
             take2 = time.perf_counter() - start_take2
 
+            # tick情報取得
+            tick_up_cnt = 0
+            tick_dw_cnt = 0
+            tick_move_cnt = 0
+            if conf.REFER_TICK_SEC != 0:
+                tick_list = get_past_tick(conf, base_t_just_score)
+
+                #conf.LOGGER("tick_list:", tick_list)
+                fisrt_tick = None
+                prev_tick = None
+                for tick_child in tick_list:
+                    if fisrt_tick != None:
+                        if fisrt_tick < tick_child:
+                            tick_up_cnt += 1
+                        elif fisrt_tick > tick_child:
+                            tick_dw_cnt += 1
+                    else:
+                        fisrt_tick = tick_child
+
+                    if prev_tick != None:
+                        if prev_tick != tick_child:
+                            tick_move_cnt += 1
+
+                    prev_tick = tick_child
+
 
             #予想取得
             start_predict = time.perf_counter()
@@ -2543,6 +2537,14 @@ def main_loop(conf, driver, second_flg=False):
                 sign = 0
             elif probe_dw > probe_up and probe_dw >= conf.BET_BORDER:
                 sign = 2
+
+            if conf.REFER_TICK_SEC != 0:
+                if sign == 0 and tick_move_cnt != 0 and tick_up_cnt < conf.REFER_TICK_MOVE_CNT:
+                    conf.LOGGER("tick_up_cnt is less than conf.REFER_TICK_MOVE_CNT:", tick_up_cnt, tick_list)
+                    sign = 1
+                elif sign == 2 and tick_move_cnt != 0 and tick_dw_cnt < conf.REFER_TICK_MOVE_CNT:
+                    sign = 1
+                    conf.LOGGER("tick_dw_cnt is less than conf.REFER_TICK_MOVE_CNT:", tick_dw_cnt, tick_list)
 
             if probe_up >= probe_dw and probe_up >= conf.BET_BORDER_EXT:
                 sign_ext = 0
@@ -2762,11 +2764,16 @@ def main_loop(conf, driver, second_flg=False):
 
             do_trade_flg = True
             # トレード指定対象外時間ならトレードしない
+            if conf.IMPORTANT_INDEX.is_except(base_t_just_score):
+                do_trade_flg = False
+
+            """
             for time_range in conf.EXCEPT_DATETIME:
                 start_time_range, end_time_range = time_range
                 if start_time_range <= tdt and tdt <= end_time_range:
                     do_trade_flg = False
                     break
+            """
 
             if tdt.second in conf.EXCEPT_SEC:
                 do_trade_flg = False
@@ -2829,8 +2836,8 @@ def main_loop(conf, driver, second_flg=False):
 
                     # 既に同じシフトのポジションがある場合は発注しない
                     if conf.EXT_FLG == False or (conf.EXT_FLG and same_shift_flg == False):
-                        # スプレッドが0以下の時のみトレード。
-                        if spread <= 0:
+                        # スプレッドがTARGET_SPREAD以下の時のみトレード。
+                        if spread <= conf.TARGET_SPREAD:
                             prev_order_time = base_t_just_dt
                             prev_history_num = get_history_num(conf, driver)
 
@@ -2850,9 +2857,9 @@ def main_loop(conf, driver, second_flg=False):
                                 detail_order(conf, driver, sign, stoploss)
 
                             if sign == 0:
-                                conf.LOGGER("BUY", probe_up, )
+                                conf.LOGGER("BUY", response, )
                             elif sign == 2:
-                                conf.LOGGER("SELL", probe_dw, )
+                                conf.LOGGER("SELL", response, )
 
                             ordered_dict[base_t_just_score] = {
                                 'bet_type': conf.BET_TYPE,
@@ -2871,6 +2878,7 @@ def main_loop(conf, driver, second_flg=False):
                                 "stoploss": float(stoploss),
                                 "prev_profit": 0,
                                 "open_spread": spread,
+                                "take_order": time.perf_counter() - start,
                             }
 
                             if sign == 0:
@@ -2893,17 +2901,28 @@ def main_loop(conf, driver, second_flg=False):
 
             # 決済処理
             start_deal = time.perf_counter()
-            deal_flg, deal_takes, prev_deal_start_time, do_ext_flg, position_times, prev_rate_dict, prev_deal_dict, \
-            start_rate_dict, ordered_dict, exception_cnt, all_dealed_flg = \
-                deal(conf, driver, prev_deal_dict, base_t_just_dt, prev_deal_start_time, sign_ext, spread,
-                     now_close, prev_rate_dict, start_rate_dict, probe_up ,probe_dw, ordered_dict, exception_cnt)
 
-            if exception_cnt == 1:
-                #処理中にページが変更されたので、再度決済処理
+            if prev_deal_datetime == None or (prev_deal_datetime != None and prev_deal_datetime + timedelta(seconds=2) <= base_t_just_dt):
+                # 前回決済から2秒以上経っていたらチェック
+                # 1秒だと画面のポジション数が残っており、get_start_textがエラーになる可能性が高いため
+
                 deal_flg, deal_takes, prev_deal_start_time, do_ext_flg, position_times, prev_rate_dict, prev_deal_dict, \
                 start_rate_dict, ordered_dict, exception_cnt, all_dealed_flg = \
                     deal(conf, driver, prev_deal_dict, base_t_just_dt, prev_deal_start_time, sign_ext, spread,
-                         now_close, prev_rate_dict, start_rate_dict, probe_up, probe_dw, ordered_dict,exception_cnt)
+                         now_close, prev_rate_dict, start_rate_dict, ordered_dict, exception_cnt)
+
+                if exception_cnt == 1:
+                    #処理中にページが変更されたので、再度決済処理
+                    deal_flg, deal_takes, prev_deal_start_time, do_ext_flg, position_times, prev_rate_dict, prev_deal_dict, \
+                    start_rate_dict, ordered_dict, exception_cnt, all_dealed_flg = \
+                        deal(conf, driver, prev_deal_dict, base_t_just_dt, prev_deal_start_time, sign_ext, spread,
+                             now_close, prev_rate_dict, start_rate_dict, ordered_dict,exception_cnt)
+
+                    if deal_flg == 1:
+                        prev_deal_datetime = base_t_just_dt
+                else:
+                    if deal_flg == 1:
+                        prev_deal_datetime = base_t_just_dt
 
             deal_take = time.perf_counter() - start_deal
 
@@ -2919,7 +2938,7 @@ def main_loop(conf, driver, second_flg=False):
                 if prev_order_time != None and all_dealed_flg == False:
                     #発注したばかりのポジションが一括決済された可能性があるので　all_dealed_flg == Falseとしている
                     prev_order_score = int(prev_order_time.timestamp())
-                    if prev_order_score + 4 == base_t_just_score:
+                    if prev_order_score + conf.ORDER_TAKE_SEC == base_t_just_score:
                         if len(position_times) == 0:
                             conf.BET_ERR_CNT += 1
                             conf.LOGGER("maybe cannnot bet:", prev_order_time, position_times)
@@ -2937,9 +2956,9 @@ def main_loop(conf, driver, second_flg=False):
                 #'profit': tmp_profit,
                 'bet_type': conf.BET_TYPE,
                 'bet_border': conf.BET_BORDER,
-                'predict_up': probe_up,
-                'predict_same': probe_same,
-                'predict_dw': probe_dw,
+                'predict_up':  float(signs[0]),
+                'predict_same':  float(signs[1]),
+                'predict_dw':  float(signs[2]),
                 'spread': spread,
                 # 'close_take': '{:.3f}'.format(close_take),
                 'predict_take': '{:.3f}'.format(predict_take),
@@ -3091,10 +3110,10 @@ def main_loop(conf, driver, second_flg=False):
                     conf.RATE_ERR_CNT))
 
     except selenium.common.exceptions.ElementClickInterceptedException as e0:
-        conf.LOGGER("Error Occured!!:", tracebackPrint(e))
+        conf.LOGGER("Error Occured!!:", tracebackPrint(e0))
 
         #mail.send_message(conf.SERVER_NAME, "Error Occured!! see log!!!")
-        """
+
         #接続が切れた場合と思われるので確認する
         try:
             modal = driver.find_element(By.XPATH, conf.MODAL_PATH)
@@ -3106,7 +3125,7 @@ def main_loop(conf, driver, second_flg=False):
         except selenium.common.exceptions.NoSuchElementException as e:
             # conf.LOGGER("NoSuchElementException:modal")
             pass
-        """
+
         try:
             # ポジションあったら決済
             if get_position_num(conf, driver) != 0:
@@ -3196,6 +3215,10 @@ def main_loop(conf, driver, second_flg=False):
     except Exception as e:
         conf.EXCEPT_CNT += 1
         conf.LOGGER("Error Occured!!:", tracebackPrint(e))
+
+        if e.__str__() == "cannnot get position_num timeout":
+            # 接続が切れた場合と思われる
+            return 4
 
         try:
             # 接続が切れた場合と思われるので確認する
@@ -3301,7 +3324,7 @@ def main_loop(conf, driver, second_flg=False):
                     return 3
 
             elif e.__str__() =="EXCEPT_CNT over 30!!":
-                return 6
+                return 3
 
             elif e.__str__() == "regist history":
                 conf.LOGGER("start regist history")
@@ -3309,6 +3332,12 @@ def main_loop(conf, driver, second_flg=False):
 
                 return 7
 
+            elif e.__str__() == 'position_id not sorted':
+                if get_position_num(conf, driver) == 0:
+                    # きちんとポジション決済していればもう一度ループさせる
+                    return 7
+                else:
+                    return 3
             else:
                 return 3
 
@@ -3334,6 +3363,11 @@ if __name__ == '__main__':
         conf = conf_thinkm.ConfThinkM()
     else:
         err_flg = True
+
+    conf.LOGGER("PROCESS ID:", os.getpid())
+    #プロセスIDをDBにセット プロセス生存確認に使用する
+    r = redis.Redis(host="localhost", port=6379, db=conf.DB_NO_HEART_BEAT)
+    r.set(conf.DB_KEY_HEART_BEAT, os.getpid())
 
     conf.LOGGER("ARG:", args)
     # args[0]は本ファイル名
@@ -3403,7 +3437,7 @@ if __name__ == '__main__':
         # chrome_service = fs.Service(executable_path=CHROME_DRIVER)
         chrome_service = Service()
         options = webdriver.ChromeOptions()
-        options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
+        options.add_experimental_option("debuggerAddress", "127.0.0.1:9777")
         driver = webdriver.Chrome(service=chrome_service, options=options)
         wait = WebDriverWait(driver, 0.5)
         time.sleep(2)
@@ -3431,14 +3465,15 @@ if __name__ == '__main__':
 
         # 明示的な待機
         # driver.implicitly_wait(1)
-        demo_liveM = driver.find_element(By.XPATH,
-                                         '//*[@id="root"]/div/div/div[2]/div[1]/div/div[2]/div[1]/div[6]/div[2]/div/span[1]')
+
+        """
+        demo_liveM = driver.find_element(By.XPATH,'//*[@id="root"]/div/div/div[2]/div[1]/div/div[2]/div[1]/div[6]/div[2]/div/span[1]')
 
         if conf.DEMO_FLG:
             conf.LOGGER("DEMO", demo_liveM.text)
         else:
             conf.LOGGER("HONBAN", demo_liveM.text)
-
+        """
         conf.LOGGER("PAIR:", conf.PAIR)
         conf.LOGGER("TRADE_TERM:", conf.TRADE_TERM)
         conf.LOGGER("LOOP_TERM:", conf.LOOP_TERM)
@@ -3460,6 +3495,10 @@ if __name__ == '__main__':
 
         # メイン処理を繰り返す
         while True:
+            if conf.ORDER_TYPE == 'ONECLICK':
+                # モーダル画面に変更
+                oneclick_order_modal_test(conf, driver)
+
             #過去24時間の取引数の制限
             base_t = time.mktime(datetime.datetime.now().timetuple())
             trade_cnt = get_trade_cnt(conf, redis_db, base_t)
@@ -3487,15 +3526,49 @@ if __name__ == '__main__':
                     detail_order_modal_test(conf, driver)
 
             elif return_code == 2:
+                # 正常なログアウト
+
                 conf.LOGGER("start regist history")
                 regist_history_db(conf, driver, redis_db)
 
-                # 正常な6時間ごとのログアウト
+                #生存確認用のキーを削除
+                r = redis.Redis(host="localhost", port=6379, db=conf.DB_NO_HEART_BEAT)
+                r.delete(conf.DB_KEY_HEART_BEAT)
+
                 break
             elif return_code == 3:
+
+                if conf.DEAL_ALL_ONLY:
+                    #DEAL_ALL_ONLY:Trueの状態でここに来たということは全決済のみ行ったということなのでbreakして終了する
+                    break
+
                 # 異常あり
                 mail.send_message(conf.SERVER_NAME, "Error Occured!! see log!!!")
-                break
+
+                #一度ログインしなおして建玉あれば全決済だけさせる
+                conf.DEAL_ALL_ONLY = True
+
+                try:
+                    conf.LOGGER("LOGOUT")
+                    # ログアウト
+                    logout(conf, driver)
+                except Exception as e:
+                    conf.LOGGER("move to https://web.thinktrader.com/account/login")
+                    driver.get("https://web.thinktrader.com/account/login")
+
+                time.sleep(5)
+                login(conf, driver)
+                time.sleep(30)
+                second_flg = False
+                if conf.ORDER_TYPE == 'ONECLICK':
+                    # モーダル画面に変更
+                    oneclick_order_modal_test(conf, driver)
+                    # ペアチェック用のパスをワンクリック用に変更
+                    conf.PAIR_PATH = conf.PAIR_PATH_ONECLICK
+                else:
+                    # 一度取引してモーダルでの取引に変更すると同時に、きちんと注文できるかチェックする
+                    detail_order_modal_test(conf, driver)
+
             elif return_code == 4:
                 # 一定回数ベット出来ない状態
                 time.sleep(2)
@@ -3516,13 +3589,11 @@ if __name__ == '__main__':
             elif return_code == 5:
                 #取引履歴DB登録のみなので終了
                 break
-            elif return_code == 6:
-                # 異常あり
-                mail.send_message(conf.SERVER_NAME, "Error Occured!! see log!!!")
-                break
 
             if return_code == 7:
                 second_flg = False
+                time.sleep(20)
+                #もう一周させる
 
             conf.MAIN_LOOP_CNT += 1
 
@@ -3538,10 +3609,13 @@ if __name__ == '__main__':
 
     # タイマー精度を戻す
     windll.winmm.timeEndPeriod(1)
-    # ログアウト
-    logout(conf, driver)
+
     # obs録画停止
     stop_obs(conf)
+
+    # ログアウト
+    logout(conf, driver)
+
 
     driver.quit()
 
